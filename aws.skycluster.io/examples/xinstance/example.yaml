@@ -1,0 +1,26 @@
+apiVersion: aws.skycluster.io/v1alpha1
+kind: XInstance
+metadata:
+  name: example
+spec: 
+  flavor: t2.micro
+  image: ami-12345678
+  publicKey: example-key
+  publicIp: true
+  userData: |
+    #!/bin/bash
+    echo "Hello, World!" > /var/tmp/hello.txt
+  securityGroups:
+    description: Example security group
+    tcpPorts:
+      - fromPort: 22
+        toPort: 22
+        protocol: tcp
+    udpPorts:
+      - fromPort: 80
+        toPort: 80
+        protocol: udp
+  providerRef:
+    name: aws
+    region: us-east-1
+    zone: use1-az1

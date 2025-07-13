@@ -1,0 +1,16 @@
+apiVersion: aws.skycluster.io/v1alpha1
+kind: XSetup
+metadata:
+  name: example-aws
+  labels:
+    skycluster.io/managed-by: "skycluster"
+    skycluster.io/provider-name: aws
+    skycluster.io/provider-region: us-east-1
+    skycluster.io/provider-zone: use1-az1
+    skycluster.io/pause: "true"
+spec:
+  vpcCidr: 10.20.30.0/24
+  providerRef:
+    name: aws
+    region: us-east-1
+    zone: use1-az1

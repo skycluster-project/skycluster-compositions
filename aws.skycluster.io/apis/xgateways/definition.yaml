@@ -1,0 +1,60 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xgateways.aws.skycluster.io
+spec:
+  group: aws.skycluster.io
+  names:
+    categories:
+    - crossplane
+    kind: XGateway
+    plural: xgateways
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        description: XGateway is the Schema for the XGateway API.
+        properties:
+          spec:
+            description: XGatewaySpec defines the desired state of XGateway.
+            properties:
+              gateway:
+                properties:
+                  flavor:
+                    type: string
+                  overlay:
+                    properties:
+                      caCert:
+                        type: string
+                      caKey:
+                        type: string
+                      host:
+                        type: string
+                      port:
+                        type: number
+                      token:
+                        type: string
+                    type: object
+                  publicKey:
+                    type: string
+                  vpcCidr:
+                    type: string
+                type: object
+              providerRef:
+                properties:
+                  name:
+                    type: string
+                  region:
+                    type: string
+                  zone:
+                    type: string
+                type: object
+            type: object
+          status:
+            description: XGatewayStatus defines the observed state of XGateway.
+            type: object
+        required:
+        - spec
+        type: object
+    served: true

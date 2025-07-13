@@ -1,0 +1,58 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xsetups.aws.skycluster.io
+spec:
+  compositeTypeRef:
+    apiVersion: aws.skycluster.io/v1alpha1
+    kind: XSetup
+  mode: Pipeline
+  pipeline:
+  - step: pull-extra-resources
+    functionRef:
+      name: function-extra-resources
+    input:
+      apiVersion: extra-resources.fn.crossplane.io/v1beta1
+      kind: Input
+      spec:
+        extraResources:
+          - kind: ProviderConfig
+            into: ProviderConfig
+            apiVersion: aws.upbound.io/v1beta1
+            type: Selector
+            selector:
+              maxMatch: 1
+              minMatch: 1
+              matchLabels:
+                - key: skycluster.io/managed-by
+                  type: Value 
+                  value: skycluster
+          - kind: Secret
+            into: KeyPairSecret
+            apiVersion: v1
+            type: Selector # or Reference
+            selector:
+              maxMatch: 1
+              minMatch: 1
+              matchLabels:
+                - key: skycluster.io/managed-by
+                  type: Value 
+                  value: skycluster
+                - key: skycluster.io/secret-type
+                  type: Value
+                  value: keypair
+  - step: resources
+    functionRef:
+      name: function-kcl
+    input:
+      apiVersion: krm.kcl.dev/v1alpha1
+      kind: KCLInput
+      metadata:
+        annotations:
+          "krm.kcl.dev/default_ready": "True"
+        name: basic
+      spec:
+        source: /home/ubuntu/skycluster-project/skycluster-compositions/aws.skycluster.io/apis/xsetups/kcl/main.k
+  - step: crossplane-contrib-function-auto-ready
+    functionRef:
+      name: function-auto-ready

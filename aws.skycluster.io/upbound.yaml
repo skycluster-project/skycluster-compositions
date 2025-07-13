@@ -1,0 +1,12 @@
+apiVersion: meta.dev.upbound.io/v1alpha1
+kind: Project
+metadata:
+  name: aws.skycluster.io
+spec:
+  description: This project contains aws skycluster compositions.
+  license: Apache-2.0
+  maintainer: Ehsan Etesami <eh.etesami@gmail.com>
+  readme: |
+    The compositions are writen in KCL and managed by up cli.
+  repository: github.com/skycluster-project/skycluster-compositions
+  source: github.com/skycluster-project/skycluster-compositions

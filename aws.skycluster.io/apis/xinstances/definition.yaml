@@ -1,0 +1,75 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xinstances.aws.skycluster.io
+spec:
+  group: aws.skycluster.io
+  names:
+    categories:
+    - crossplane
+    kind: XInstance
+    plural: xinstances
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        description: XInstance is the Schema for the XInstance API.
+        properties:
+          spec:
+            description: XInstanceSpec defines the desired state of XInstance.
+            properties:
+              flavor:
+                type: string
+              image:
+                type: string
+              providerRef:
+                properties:
+                  name:
+                    type: string
+                  region:
+                    type: string
+                  zone:
+                    type: string
+                type: object
+              publicIp:
+                type: boolean
+              publicKey:
+                type: string
+              securityGroups:
+                properties:
+                  description:
+                    type: string
+                  tcpPorts:
+                    items:
+                      properties:
+                        fromPort:
+                          type: number
+                        protocol:
+                          type: string
+                        toPort:
+                          type: number
+                      type: object
+                    type: array
+                  udpPorts:
+                    items:
+                      properties:
+                        fromPort:
+                          type: number
+                        protocol:
+                          type: string
+                        toPort:
+                          type: number
+                      type: object
+                    type: array
+                type: object
+              userData:
+                type: string
+            type: object
+          status:
+            description: XInstanceStatus defines the observed state of XInstance.
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
