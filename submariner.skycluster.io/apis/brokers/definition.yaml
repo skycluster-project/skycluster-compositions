@@ -1,0 +1,50 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: brokers.submariner.skycluster.io
+spec:
+  group: submariner.skycluster.io
+  names:
+    categories:
+    - crossplane
+    kind: Broker
+    plural: brokers
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        description: Broker is the Schema for the Broker API.
+        properties:
+          spec:
+            description: BrokerSpec defines the desired state of Broker.
+            properties:
+              broker:
+                properties:
+                  ip:
+                    type: string
+                  port:
+                    type: number
+                type: object
+            type: object
+          status:
+            description: BrokerStatus defines the observed state of Broker.
+            properties:
+              broker:
+                properties:
+                  ca:
+                    type: string
+                  psk:
+                    type: string
+                  token:
+                    type: string
+                  url:
+                    type: string
+                type: object
+              dummy:
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
