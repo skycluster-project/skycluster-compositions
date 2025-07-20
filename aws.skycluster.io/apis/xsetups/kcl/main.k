@@ -13,7 +13,7 @@ import provider_aws.ec2.v1beta1.routetable as ec2rt
 import provider_aws.ec2.v1beta1.routetableassociation as ec2rta
 
 oxr = option("params").oxr # observed composite resource
-# _ocds = option("params").ocds # observed composed resources
+ocds = option("params")?.ocds # observed composed resources
 # _dxr = option("params").dxr # desired composite resource
 # dcds = option("params").dcds # desired composed resources
 
@@ -35,11 +35,11 @@ _privateKey = json.decode(value=_keypairDecoded).privateKey
 oxrSpec = oxr.spec
 _oxrProvRegion = oxrSpec.providerRef.region
 _oxrProvZone = oxrSpec.providerRef.zone
-_oxrProvName = oxrSpec.providerRef.name
+_oxrProvPlatform = oxrSpec.providerRef.platform
+_oxrProvName = oxrSpec.providerRef.name or Undefined
 
-assert _oxrProvRegion is not Undefined, "Provider region must be specified in the XSkyCluster spec"
-assert _oxrProvZone is not Undefined, "Provider zone must be specified in the XSkyCluster spec"
-assert _oxrProvName is not Undefined, "Provider name must be specified in the XSkyCluster spec"
+_provSelector = all p in [_oxrProvRegion, _oxrProvZone, _oxrProvPlatform] {p is not Undefined}
+assert _provSelector or _oxrProvName is not Undefined, "Provider region, zone, platform or name must be specified in the XSkyCluster spec"
 
 _vpcCidr = oxrSpec.vpcCidr
 _vpcCidrParts = _vpcCidr.split("/")
@@ -84,7 +84,7 @@ subnetPublic = ec2subnet.Subnet{
     },
     annotations: {
       **oxr.metadata?.annotations,
-      **helper._set_resource_name("public-subnet"),
+      **helper._set_resource_name("subnetPublic"),
       **helper._is_paused_label(oxr.metadata.labels),
     }
   },
@@ -111,7 +111,7 @@ subnetPrivate = ec2subnet.Subnet{
     },
     annotations: {
       **oxr.metadata?.annotations,
-      **helper._set_resource_name("private-subnet"),
+      **helper._set_resource_name("subnetPrivate"),
       **helper._is_paused_label(oxr.metadata.labels),
     }
   },
@@ -557,8 +557,36 @@ keypair = ec2kp.KeyPair{
   }
 }
 
-# Collect all resources into a list for output
+_keyPairId = ocds?.keypair?.Resource?.status?.atProvider?.keyPairId or None
+_keypairName = ocds?.keypair?.Resource?.status?.atProvider?.id or None
+_vpcId = ocds?.vpc?.Resource?.status?.atProvider?.id or None
+_subnetPublicId = ocds?.subnetPublic?.Resource?.status?.atProvider?.id or None
+_subnetPublicCidr = ocds?.subnetPublic?.Resource?.status?.atProvider?.cidrBlock or None
+_subnetPrivateId = ocds?.subnetPrivate?.Resource?.status?.atProvider?.id or None
+_subnetPrivateCidr = ocds?.subnetPrivate?.Resource?.status?.atProvider?.cidrBlock or None
 
+dxr = {
+  **option("params").dxr,
+  status.keypair = {
+    name = _keyPairId
+    id = _keypairName
+  } if _keyPairId and _keypairName else {},
+  status.vpc = {
+    id = _vpcId
+  } if _vpcId else {},
+  status.subnet = {
+    public = {
+      id = _subnetPublicId
+      cidrBlock = _subnetPublicCidr
+    } if _subnetPublicId and _subnetPublicCidr else {},
+    private = {
+      id = _subnetPrivateId
+      cidrBlock = _subnetPrivateCidr
+    } if _subnetPrivateId and _subnetPrivateCidr else {},
+  }
+}
+
+# Collect all resources into a list for output
 items = [
   vpc, 
   subnetPublic, subnetPrivate, 
@@ -569,5 +597,6 @@ items = [
   secGrpRuleInboundIcmp,
   *secGrpRulesInboundTcp,
   *secGrpRulesInboundUdp,
-  keypair
+  keypair,
+  dxr
 ]

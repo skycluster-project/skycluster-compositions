@@ -23,6 +23,8 @@ spec:
                 properties:
                   name:
                     type: string
+                  platform:
+                    type: string
                   region:
                     type: string
                   zone:
@@ -33,6 +35,36 @@ spec:
             type: object
           status:
             description: XSetupStatus defines the observed state of XSetup.
+            properties:
+              keypair:
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                type: object
+              subnet:
+                properties:
+                  private:
+                    properties:
+                      cidrBlock:
+                        type: string
+                      id:
+                        type: string
+                    type: object
+                  public:
+                    properties:
+                      cidrBlock:
+                        type: string
+                      id:
+                        type: string
+                    type: object
+                type: object
+              vpc:
+                properties:
+                  id:
+                    type: string
+                type: object
             type: object
         required:
         - spec
