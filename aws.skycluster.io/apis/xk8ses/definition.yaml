@@ -1,0 +1,40 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xk8ses.aws.skycluster.io
+spec:
+  group: aws.skycluster.io
+  names:
+    categories:
+    - crossplane
+    kind: XK8S
+    plural: xk8ses
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        description: XK8S is the Schema for the XK8S API.
+        properties:
+          spec:
+            description: XK8SSpec defines the desired state of XK8S.
+            properties:
+              providerRef:
+                properties:
+                  name:
+                    type: string
+                  platform:
+                    type: string
+                  region:
+                    type: string
+                  zone:
+                    type: string
+                type: object
+            type: object
+          status:
+            description: XK8SStatus defines the observed state of XK8S.
+            type: object
+        required:
+        - spec
+        type: object
+    served: true

@@ -21,8 +21,6 @@ spec:
             properties:
               providerRef:
                 properties:
-                  name:
-                    type: string
                   platform:
                     type: string
                   region:
@@ -30,6 +28,15 @@ spec:
                   zone:
                     type: string
                 type: object
+              subnets:
+                items:
+                  properties:
+                    availabilityZone:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
               vpcCidr:
                 type: string
             type: object
@@ -43,23 +50,17 @@ spec:
                   name:
                     type: string
                 type: object
-              subnet:
-                properties:
-                  private:
-                    properties:
-                      cidrBlock:
-                        type: string
-                      id:
-                        type: string
-                    type: object
-                  public:
-                    properties:
-                      cidrBlock:
-                        type: string
-                      id:
-                        type: string
-                    type: object
-                type: object
+              subnets:
+                items:
+                  properties:
+                    cidrBlock:
+                      type: string
+                    id:
+                      type: string
+                    type:
+                      type: string
+                  type: object
+                type: array
               vpc:
                 properties:
                   id:

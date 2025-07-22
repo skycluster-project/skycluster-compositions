@@ -1,0 +1,15 @@
+apiVersion: aws.skycluster.io/v1alpha1
+kind: XK8S
+metadata:
+  name: example
+  labels:
+    skycluster.io/managed-by: "skycluster"
+    skycluster.io/provider-platform: aws
+    skycluster.io/provider-region: us-east-1
+    skycluster.io/provider-zone: us-east-1a
+spec: 
+  providerRef:
+    platform: aws
+    region: us-east-1
+    zone: us-east-1a
+    # name: example-provider

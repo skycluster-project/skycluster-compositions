@@ -1,5 +1,5 @@
 [package]
-name = "provider-aws-xsetup"
+name = "provider-aws-xk8s"
 edition = "v0.11.2"
 version = "0.0.1"
 

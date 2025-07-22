@@ -1,16 +1,33 @@
 apiVersion: aws.skycluster.io/v1alpha1
 kind: XSetup
 metadata:
-  name: example-aws
+  name: aws-us-east-1
   labels:
     skycluster.io/managed-by: "skycluster"
-    skycluster.io/provider-name: aws
+    skycluster.io/provider-platform: aws
     skycluster.io/provider-region: us-east-1
-    skycluster.io/provider-zone: use1-az1
-    skycluster.io/pause: "true"
+    skycluster.io/provider-zone: us-east-1a
+    # skycluster.io/pause: "true"
 spec:
-  vpcCidr: 10.20.30.0/24
+  vpcCidr: 10.20.30.0/16
+  subnets:
+    - type: public
+      availabilityZone: us-east-1a
+    - type: private
+      availabilityZone: us-east-1b
   providerRef:
-    name: aws
+    platform: aws
     region: us-east-1
-    zone: use1-az1
+    # TODO: Should we discard the zone?
+    zone: us-east-1a
+#     name: example-provider
+# status:
+#   keypair:
+#     name: example-keypair
+#     id: example-keypair-id
+#   vpc:
+#     id: vpc-12345678
+#   subnets:
+#     - type: public
+#       id: subnet-12345678
+#       cidrBlock: "10.20.30.0/24"
