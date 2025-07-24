@@ -1,2 +1,5 @@
 **/.up
 **/*.tmp
+**/_output
+**/.venv
+**/.up

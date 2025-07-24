@@ -1,0 +1,42 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xsetups.skycluster.io
+spec:
+  compositeTypeRef:
+    apiVersion: skycluster.io/v1alpha1
+    kind: XSetup
+  mode: Pipeline
+  pipeline:
+  - step: extra-resources
+    functionRef:
+      name: function-extra-resources
+    input:
+      apiVersion: extra-resources.fn.crossplane.io/v1beta1
+      kind: Input
+      spec:
+        extraResources:
+        - kind: Provider
+          into: Providers
+          apiVersion: pkg.crossplane.io/v1
+          type: Selector
+          selector:
+            minMatch: 0
+            maxMatch: 100
+            matchLabels:
+              - key: skycluster.io/managed-by
+                type: Value 
+                value: skycluster
+  - step: resources
+    functionRef:
+      name: function-kcl
+    input:
+      apiVersion: krm.kcl.dev/v1alpha1
+      kind: KCLInput
+      metadata:
+        name: basic
+      spec:
+        source: /home/ubuntu/skycluster-project/skycluster-compositions/skycluster.io/apis/xsetups/kcl/main.k
+  - step: function-auto-ready
+    functionRef:
+      name: function-auto-ready

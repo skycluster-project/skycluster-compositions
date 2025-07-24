@@ -1,0 +1,11 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XSetup
+metadata:
+  name: mycluster
+spec: {}
+# status:
+#   providerConfig:
+#     helm:
+#       name: provider-helm-12345
+#     kubernetes:
+#       name: provider-kubernetes-67890

@@ -1,0 +1,78 @@
+import helper.v1alpha1.main as helper
+import provider_helm.v1beta1 as helmv1beta1
+import provider_kubernetes.v1alpha1 as k8sv1beta1
+
+oxr = option("params").oxr # observed composite resource
+ocds = option("params")?.ocds # observed composed resources
+# _dxr = option("params").dxr # desired composite resource
+# dcds = option("params").dcds # desired composed resources
+
+# assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
+# assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
+
+ctx = option("params")?.ctx
+assert ctx is not Undefined, "Context must be provided in the params"
+
+_extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
+assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+
+_provCfgs = _extraRes["Providers"] or []
+_helmProvCfg = [cfg for cfg in _provCfgs if "provider-helm" in cfg.spec?.package]
+_k8sProvCfg = [cfg for cfg in _provCfgs if "provider-kubernetes" in cfg.spec?.package]
+
+
+
+_items = [
+  helmv1beta1.ProviderConfig{
+    metadata = {
+      labels = {"skycluster.io/managed-by": "skycluster"}
+      annotations = {
+          **oxr.metadata?.annotations,
+          **helper._set_resource_name("helmConfig"),
+          "krm.kcl.dev/ready": "True"
+      }
+    }
+    spec = {
+      credentials = {
+        source: "InjectedIdentity"
+      }
+    }
+  }
+] if _helmProvCfg else []
+
+_items += [
+  k8sv1beta1.ProviderConfig{
+    metadata = {
+      labels = {"skycluster.io/managed-by": "skycluster"}
+      annotations = {
+          **oxr.metadata?.annotations,
+          **helper._set_resource_name("k8sConfig"),
+          "krm.kcl.dev/ready": "True"
+      }
+    }
+    spec = {
+      credentials = {
+        source: "InjectedIdentity"
+      }
+    }
+  }
+] if _k8sProvCfg else []
+
+
+_helmCfgName = ocds?["helmConfig"]?.Resource?.metadata?.name or Undefined
+_k8sCfgName = ocds?["k8sConfig"]?.Resource?.metadata?.name or Undefined
+
+dxr = [{
+  **option("params").dxr,
+  status.providerConfig = {
+    helm = {
+      name = _helmCfgName
+    } if _helmCfgName else Undefined,
+    kubernetes = {
+      name = _k8sCfgName
+    } if _k8sCfgName else Undefined
+  } if _helmCfgName or _k8sCfgName else Undefined
+}] 
+
+
+items = _items + dxr

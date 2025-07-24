@@ -1,7 +1,7 @@
 apiVersion: meta.dev.upbound.io/v1alpha1
 kind: Project
 metadata:
-  name: submariner.skycluster.io
+  name: skycluster.io
 spec:
   dependsOn:
   - function: xpkg.upbound.io/crossplane-contrib/function-auto-ready
@@ -11,5 +11,5 @@ spec:
   maintainer: Upbound User <user@example.com>
   readme: |
     This is where you can add a readme for your project.
-  repository: xpkg.upbound.io/<organization>/submariner.skycluster.io
+  repository: xpkg.upbound.io/<organization>/skycluster.io
   source: github.com/upbound/project-template
