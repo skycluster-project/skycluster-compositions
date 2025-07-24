@@ -202,12 +202,6 @@ spec:
             
             _connectionSecretNamespace = oxr.spec.writeConnectionSecretToRef?.namespace or "skycluster"
             
-            _this_ready = lambda o: any -> bool {
-                _status = o?.Resource?.status
-                _objstatus = _status?.conditions or []
-                o and _status and len(_objstatus) > 0 and all_true([c.status == "True" for c in _objstatus])
-            }
-            
             _items += [
                 eksv1beta1.ClusterAuth{
                     metadata = {
@@ -232,7 +226,7 @@ spec:
                         }
                     }
                 }
-            ] if _this_ready(ocds?["kubernetesCluster"]) or ocds?["kubernetesClusterAuth"] else []
+            ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["kubernetesClusterAuth"] else []
             
             _nodeCount = oxr.spec.parameters?.nodes?.count or 1
             _instanceType = oxr.spec.parameters?.nodes?.instanceType or "t3.medium"
@@ -277,7 +271,7 @@ spec:
                         }
                     }
                 }
-            ] if _this_ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
+            ] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
             
             
             _items += [
@@ -327,7 +321,7 @@ spec:
             
             
             
-            principalArn = oxr.spec?.parameters?.iam?.principalArn or False
+            principalArn = oxr.spec?.parameters?.iam?.principalArn or "arn:aws:iam::885707601199:root"
             
             _items += [
                 eksv1beta1.AccessEntry{
@@ -409,7 +403,7 @@ spec:
                         }
                     }
                 }
-            ] if _this_ready(ocds?["kubernetesClusterAuth"]) or ocds?["vpc-cni-addon"] else []
+            ] if helper._ready(ocds?["kubernetesClusterAuth"]) or ocds?["vpc-cni-addon"] else []
             
             _items += [
                 eksv1beta1.Addon{
@@ -433,7 +427,7 @@ spec:
                         }
                     }
                 }
-            ] if _this_ready(ocds?["nodeGroupPublic"]) or ocds?["aws-ebs-csi-driver-addon"] else []
+            ] if helper._ready(ocds?["nodeGroupPublic"]) or ocds?["aws-ebs-csi-driver-addon"] else []
             
             
             _items += [
@@ -457,7 +451,7 @@ spec:
                         }
                     }
                 }
-            ] if _this_ready(ocds?["nodeGroupPublic"]) or ocds?["eks-pod-identity-agent"] else []
+            ] if helper._ready(ocds?["nodeGroupPublic"]) or ocds?["eks-pod-identity-agent"] else []
             
             providerConfigTypes = ["helm", "kubernetes"]
             _items += [{
@@ -491,6 +485,7 @@ spec:
             items =  _items 
             
             
+
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready

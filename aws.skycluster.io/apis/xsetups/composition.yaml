@@ -52,6 +52,7 @@ spec:
         spec:
           dependencies: |
             provider-aws = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
+            provider-kubernetes = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
           source: |-
             import json

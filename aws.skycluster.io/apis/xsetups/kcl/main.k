@@ -80,7 +80,7 @@ _items += [ec2v1beta1.Subnet{
   metadata: {
     labels: {
       **oxr.metadata?.labels,
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrProvName),
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, "", _oxrProvName),
       "skycluster.io/public-subnet": "false" if s.type == "private" else "true",
     }
     annotations: {
@@ -124,7 +124,7 @@ _items += [ec2v1beta1.NetworkInterface{
       region: _oxrProvRegion,
       subnetIdSelector: {
         matchLabels: {
-          **helper._filter_default_labels(oxr.metadata.labels)
+          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region"])
           "skycluster.io/public-subnet": "true",
         },
       },
@@ -213,7 +213,7 @@ _items += [ec2v1beta1.RouteTableAssociation{
       },
       subnetIdSelector: {
         matchLabels: {
-          **helper._filter_default_labels(oxr.metadata.labels)
+          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region"])
           "skycluster.io/public-subnet": "true",
         },
       },
@@ -308,7 +308,7 @@ _items += [ec2v1beta1.RouteTableAssociation{
       },
       subnetIdSelector: {
         matchLabels: {
-          **helper._filter_default_labels(oxr.metadata.labels)
+          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region"])
           "skycluster.io/public-subnet": "false",
         },
       },
