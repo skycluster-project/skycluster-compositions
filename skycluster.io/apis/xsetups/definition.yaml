@@ -18,10 +18,22 @@ spec:
         properties:
           spec:
             description: XSetupSpec defines the desired state of XSetup.
+            properties:
+              namespace:
+                type: string
+              publicIp:
+                type: string
+              submariner:
+                properties:
+                  enabled:
+                    type: boolean
+                type: object
             type: object
           status:
             description: XSetupStatus defines the observed state of XSetup.
             properties:
+              namespace:
+                type: string
               providerConfig:
                 properties:
                   helm:
@@ -34,6 +46,15 @@ spec:
                       name:
                         type: string
                     type: object
+                type: object
+              publicIp:
+                type: string
+              submariner:
+                properties:
+                  configMapName:
+                    type: string
+                  enabled:
+                    type: boolean
                 type: object
             type: object
         required:

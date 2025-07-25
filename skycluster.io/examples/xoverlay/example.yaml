@@ -1,0 +1,8 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XOverlay
+metadata:
+  name: example
+spec: {}
+# status:
+#   namespace: skycluster
+#   connectionSecretName: connection-secret

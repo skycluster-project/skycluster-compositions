@@ -59,11 +59,34 @@ _items += [
 ] if _k8sProvCfg else []
 
 
+_items += [
+  {
+    apiVersion = "skycluster.io/v1alpha1"
+    kind = "XOverlay"
+    metadata = {
+      labels = {
+        "skycluster.io/managed-by": "skycluster"
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("xoverlay"),
+      }
+    }
+    spec = {
+      publicIp = oxr?.spec.publicIp or Undefined
+      namespace = oxr?.spec.namespace or "default"
+    }
+  }
+] if oxr?.spec?.submariner?.enabled else []
+
+
 _helmCfgName = ocds?["helmConfig"]?.Resource?.metadata?.name or Undefined
 _k8sCfgName = ocds?["k8sConfig"]?.Resource?.metadata?.name or Undefined
 
 dxr = [{
   **option("params").dxr,
+  status.publicIp = oxr?.spec?.publicIp or Undefined,
+  status.namespace = oxr?.spec?.namespace or "default",
   status.providerConfig = {
     helm = {
       name = _helmCfgName
