@@ -10,24 +10,28 @@ metadata:
     # skycluster.io/pause: "true"
 spec:
   vpcCidr: 10.20.30.0/16
+  # Subnet CIDRs should be within the VPC CIDR range
   subnets:
     - type: public
-      availabilityZone: us-east-1a
+      zone: us-east-1a
+      cidr: 10.20.30.0/24
     - type: private
-      availabilityZone: us-east-1b
+      zone: us-east-1b
+      cidr: 10.20.31.0/24 
   providerRef:
     platform: aws
     region: us-east-1
-    # TODO: Should we discard the zone?
-    zone: us-east-1a
+    zones: 
+      primary: us-east-1a
+      secondary: us-east-1b
 #     name: example-provider
-# status:
-#   keypair:
-#     name: example-keypair
-#     id: example-keypair-id
-#   vpc:
-#     id: vpc-12345678
-#   subnets:
-#     - type: public
-#       id: subnet-12345678
-#       cidrBlock: "10.20.30.0/24"
+status:
+  keypair:
+    name: example-keypair
+    id: example-keypair-id
+  vpc:
+    id: vpc-12345678
+  subnets:
+    - type: public
+      id: subnet-12345678
+      cidrBlock: "10.20.30.0/24"

@@ -25,15 +25,20 @@ spec:
                     type: string
                   region:
                     type: string
-                  zone:
-                    type: string
+                  zones:
+                    properties:
+                      primary:
+                        type: string
+                      secondary:
+                        type: string
+                    type: object
                 type: object
               subnets:
                 items:
                   properties:
-                    availabilityZone:
-                      type: string
                     type:
+                      type: string
+                    zone:
                       type: string
                   type: object
                 type: array

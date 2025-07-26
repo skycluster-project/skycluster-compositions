@@ -17,8 +17,19 @@ spec:
       spec:
         extraResources:
         - kind: ProviderConfig
-          into: Provider-Config
+          into: ProviderConfigs
           apiVersion: aws.upbound.io/v1beta1
+          type: Selector
+          selector:
+            maxMatch: 1
+            minMatch: 1
+            matchLabels:
+              - key: skycluster.io/managed-by
+                type: Value 
+                value: skycluster
+        - kind: XSetup
+          into: SkySetups
+          apiVersion: skycluster.io/v1alpha1
           type: Selector
           selector:
             maxMatch: 1
@@ -36,7 +47,7 @@ spec:
             minMatch: 1
             matchLabels:
               - key: skycluster.io/managed-by
-                type: Value 
+                type: Value
                 value: skycluster
               - key: skycluster.io/provider-platform
                 type: Value
@@ -46,7 +57,10 @@ spec:
                 valueFromFieldPath: spec.providerRef.region
               - key: skycluster.io/provider-zone
                 type: FromCompositeFieldPath
-                valueFromFieldPath: spec.providerRef.zone
+                valueFromFieldPath: spec.providerRef.zones.primary
+              - key: skycluster.io/application-id
+                type: FromCompositeFieldPath
+                valueFromFieldPath: spec.applicationId
   - step: resources
     functionRef:
       name: function-kcl
@@ -54,8 +68,6 @@ spec:
       apiVersion: krm.kcl.dev/v1alpha1
       kind: KCLInput
       metadata:
-        # annotations:
-        #   "krm.kcl.dev/default_ready": "True"
         name: basic
       spec:
         source: /home/ubuntu/skycluster-project/skycluster-compositions/aws.skycluster.io/apis/xk8ses/kcl/main.k

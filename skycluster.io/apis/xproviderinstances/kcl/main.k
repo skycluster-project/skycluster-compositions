@@ -1,0 +1,61 @@
+import helper.v1alpha1.main as helper
+
+oxr = option("params").oxr # observed composite resource
+ocds = option("params")?.ocds # observed composed resources
+# _dxr = option("params").dxr # desired composite resource
+# dcds = option("params").dcds # desired composed resources
+
+# assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
+# assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
+
+ctx = option("params")?.ctx
+assert ctx is not Undefined, "Context must be provided in the params"
+
+# _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
+# assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+# _secrets = _extraRes["Secrets"] or Undefined
+
+_oxrProvPlatform = oxr.spec?.providerRef?.platform or Undefined
+_oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
+_oxrProvZone = oxr.spec?.providerRef?.zones?.primary or Undefined
+_appId = oxr.spec?.applicationId or Undefined
+assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone and _appId, \
+  "Provider platform, region, and primary zone and application ID must be specified in the providerRef"
+_oxrVpcCidr = oxr.spec?.vpcCidr or Undefined
+assert _oxrVpcCidr, "VPC CIDR must be specified in the oxr spec"
+_oxrSubnets = oxr.spec?.subnets or Undefined
+assert len(_oxrSubnets) > 0, "At least one subnet must be specified in the oxr spec"
+
+_items = []
+
+_items += [
+  {
+    apiVersion = "aws.skycluster.io/v1alpha1"
+    kind = "XSetup"
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("xproviderinstances")
+      }
+    }
+    spec = {
+      vpcCidr = _oxrVpcCidr
+      subnets = _oxrSubnets
+      providerRef={
+        platform= _oxrProvPlatform
+        region= _oxrProvRegion
+        zones = {
+          primary: _oxrProvZone
+          secondary: oxr.spec?.providerRef?.zones?.secondary
+        }
+      }
+    }
+  }
+]
+
+
+items = _items

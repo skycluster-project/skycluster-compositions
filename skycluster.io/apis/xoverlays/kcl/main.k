@@ -32,7 +32,9 @@ _brokerToken = _brokerSecret.data?["token"] or Undefined
 assert _brokerToken is not Undefined, "Broker token must be provided in the broker secret"
 
 # Generate a random PSK (Pre-Shared Key) for the broker 64 characters long
-_psk = crypto.uuid().replace("-", "") + crypto.uuid().replace("-", "")[:31]
+_ocdsPskDecoded = ocds?["submarinerSecretObj"]?.Resource?.status?.atProvider?.manifest?.data?["values.yaml"]
+_ocdsPsk = json.decode(base64.decode(_ocdsPskDecoded))?.ipsec?.psk if _ocdsPskDecoded else Undefined
+_psk = _ocdsPsk if _ocdsPsk else crypto.uuid().replace("-", "") + crypto.uuid().replace("-", "")[:32]
 
 # _brokerPrivateIp = _brokerEndpoint.endpoints?[0]?.addresses?[0] or Undefined
 # assert _brokerPrivateIp is not Undefined, "Broker private IP must be provided in the broker endpoint"

@@ -19,16 +19,43 @@ spec:
           spec:
             description: XK8SSpec defines the desired state of XK8S.
             properties:
+              applicationId:
+                type: string
+              nodeGroups:
+                items:
+                  properties:
+                    autoScaling:
+                      properties:
+                        enabled:
+                          type: boolean
+                        maxSize:
+                          type: number
+                        minSize:
+                          type: number
+                      type: object
+                    instanceTypes:
+                      items:
+                        type: string
+                      type: array
+                    nodeCount:
+                      type: number
+                    publicAccess:
+                      type: boolean
+                  type: object
+                type: array
               providerRef:
                 properties:
-                  name:
-                    type: string
                   platform:
                     type: string
                   region:
                     type: string
-                  zone:
-                    type: string
+                  zones:
+                    properties:
+                      primary:
+                        type: string
+                      secondary:
+                        type: string
+                    type: object
                 type: object
             type: object
           status:

@@ -8,8 +8,29 @@ metadata:
     skycluster.io/provider-region: us-east-1
     skycluster.io/provider-zone: us-east-1a
 spec: 
+  applicationId: example-app
+  serviceCidr: 10.0.0.0/24
+  nodeGroups:
+    - nodeCount: 1
+      instanceTypes:
+        - t3.medium
+      publicAccess: true
+      autoScaling:
+        enabled: true
+        minSize: 1
+        maxSize: 3
+    - nodeCount: 1
+      instanceTypes:
+        - t3.medium
+      publicAccess: false
+      autoScaling:
+        enabled: true
+        minSize: 1
+        maxSize: 3
   providerRef:
     platform: aws
     region: us-east-1
-    zone: us-east-1a
+    zones: 
+      primary: us-east-1a
+      secondary: us-east-1b
     # name: example-provider
