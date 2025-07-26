@@ -60,9 +60,10 @@ spec:
             assert _extraRes is not Undefined, "Extra resources must be provided in the context"
             
             _provCfgs = _extraRes["Providers"] or []
-            _helmProvCfg = [cfg for cfg in _provCfgs if "provider-helm" in cfg.spec?.package]
-            _k8sProvCfg = [cfg for cfg in _provCfgs if "provider-kubernetes" in cfg.spec?.package]
+            _helmProv = [cfg for cfg in _provCfgs if "provider-helm" in cfg.spec?.package]
+            _k8sProv = [cfg for cfg in _provCfgs if "provider-kubernetes" in cfg.spec?.package]
             
+            _ns = oxr.spec?.namespace or "default"
             
             
             _items = [
@@ -81,7 +82,7 @@ spec:
                   }
                 }
               }
-            ] if _helmProvCfg else []
+            ] if _helmProv else []
             
             _items += [
               k8sv1beta1.ProviderConfig{
@@ -99,8 +100,40 @@ spec:
                   }
                 }
               }
-            ] if _k8sProvCfg else []
+            ] if _k8sProv else []
             
+            
+            _helmProvCfgName = ocds?["helmConfig"]?.Resource?.metadata?.name or Undefined
+            _k8sProvCfgName = ocds?["k8sConfig"]?.Resource?.metadata?.name or Undefined
+            
+            _items += [
+              helmv1beta1.Release{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    "skycluster.io/managed-by": "skycluster",
+                  },
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("submarinerBrokerRelease")
+                  }
+                }
+                spec = {
+                  forProvider = {
+                    chart = {
+                      name = "submariner-k8s-broker"
+                      repository = "https://submariner-io.github.io/submariner-charts/charts"
+                      version = "0.20.1"
+                    }
+                    namespace = _ns
+                    skipCreateNamespace = True
+                  }
+                  providerConfigRef = {
+                    name = _helmProvCfgName
+                  }
+                }
+              }
+            ] if _helmProvCfgName or ocds?["submarinerBrokerRelease"] else []
             
             _items += [
               {
@@ -115,29 +148,24 @@ spec:
                     **helper._set_resource_name("xoverlay"),
                   }
                 }
-                spec = {
-                  publicIp = oxr?.spec.publicIp or Undefined
-                  namespace = oxr?.spec.namespace or "default"
-                }
+                spec = {}
               }
-            ] if oxr?.spec?.submariner?.enabled else []
+            ] if oxr?.spec?.submariner?.enabled and helper._ready(ocds?["submarinerBrokerRelease"]) else []
             
             
-            _helmCfgName = ocds?["helmConfig"]?.Resource?.metadata?.name or Undefined
-            _k8sCfgName = ocds?["k8sConfig"]?.Resource?.metadata?.name or Undefined
             
             dxr = [{
               **option("params").dxr,
-              status.publicIp = oxr?.spec?.publicIp or Undefined,
+              status.apiServer = oxr?.spec?.apiServer or Undefined,
               status.namespace = oxr?.spec?.namespace or "default",
               status.providerConfig = {
                 helm = {
-                  name = _helmCfgName
-                } if _helmCfgName else Undefined,
+                  name = _helmProvCfgName
+                } if _helmProvCfgName else Undefined,
                 kubernetes = {
-                  name = _k8sCfgName
-                } if _k8sCfgName else Undefined
-              } if _helmCfgName or _k8sCfgName else Undefined
+                  name = _k8sProvCfgName
+                } if _k8sProvCfgName else Undefined
+              } if _helmProvCfgName or _k8sProvCfgName else Undefined
             }] 
             
             

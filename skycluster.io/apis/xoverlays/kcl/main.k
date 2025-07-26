@@ -1,4 +1,5 @@
 import base64
+import json
 import crypto
 import yaml
 import provider_kubernetes.v1alpha2 as k8sv1alpha2
@@ -40,9 +41,10 @@ _psk = crypto.uuid().replace("-", "") + crypto.uuid().replace("-", "")[:31]
 _xsetup = _extraRes["XSetups"]?[0] or Undefined
 assert _xsetup is not Undefined, "XSetup resource must be provided in the extra resources"
 
-_publicIp = _xsetup.status?.publicIp or Undefined
-assert _publicIp is not Undefined, "Broker public IP must be provided"
+_apiServer = _xsetup.status?.apiServer or Undefined
+assert _apiServer is not Undefined, "Broker public IP and port must be provided"
 _ns = _xsetup.status?.namespace or "default"
+
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
 _helmProvCfgName = _xsetup.status?.providerConfig?.helm?.name or Undefined
 
@@ -113,24 +115,25 @@ _items += [
         }
         type: "Opaque"
         stringData = {
-          "ca.crt" = """\
-base64.decode(_brokerCA)
-"""
-          "values.yaml" = """\
-ipsec:
-  psk: ${_psk}
-broker:
-  server: ${_publicIp}
-  token: ${base64.decode(_brokerToken)}
-  namespace: ${_ns}
-submariner:
-  serviceDiscovery: "false"
-  cableDriver: "wireguard"
-  clusterId: "broker"
-  clusterCidr: "${_clusterCidr}"
-  serviceCidr: "${_serviceCidr}"
-  natEnabled: "true"
-"""
+          "values.yaml" = json.encode({
+            "ipsec": {
+              "psk": _psk
+            },
+            "broker": {
+              "server": _apiServer,
+              "namespace": _ns,
+              "ca" : _brokerCA, 
+              "token": base64.decode(_brokerToken),
+            },
+            "submariner": {
+              "serviceDiscovery": "false",
+              "cableDriver": "wireguard",
+              "clusterId": "broker-skycluster",
+              "clusterCidr": _clusterCidr,
+              "serviceCidr": _serviceCidr,
+              "natEnabled": "true"
+            }
+          })
         }
       }
       providerConfigRef = {
@@ -162,22 +165,12 @@ _items += [
           version = "0.20.1"
         }
         namespace = "submariner-operator"
-        skipCreateNamespace = False
+        skipCreateNamespace = True
         valuesFrom = [{
             secretKeyRef = {
               key = "values.yaml"
               name = _submarinerSecretName if _submarinerSecretName else "submariner-connection-secret"
               namespace = _ns if _ns else "default"
-            }
-        }]
-        set = [{
-            name = "broker.ca"
-            valueFrom = {
-              secretKeyRef = {
-                key = "ca.crt"
-                name = _submarinerSecretName if _submarinerSecretName else "submariner-connection-secret"
-              namespace = _ns if _ns else "default"
-              }
             }
         }]
       }

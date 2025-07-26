@@ -19,9 +19,9 @@ spec:
           spec:
             description: XSetupSpec defines the desired state of XSetup.
             properties:
-              namespace:
+              apiServer:
                 type: string
-              publicIp:
+              namespace:
                 type: string
               submariner:
                 properties:
@@ -32,6 +32,8 @@ spec:
           status:
             description: XSetupStatus defines the observed state of XSetup.
             properties:
+              apiServer:
+                type: string
               namespace:
                 type: string
               providerConfig:
@@ -47,8 +49,6 @@ spec:
                         type: string
                     type: object
                 type: object
-              publicIp:
-                type: string
               submariner:
                 properties:
                   configMapName:

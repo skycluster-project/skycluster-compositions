@@ -3,6 +3,9 @@ kind: Project
 metadata:
   name: aws.skycluster.io
 spec:
+  dependsOn:
+  - function: xpkg.upbound.io/crossplane-contrib/function-auto-ready
+    version: '>=v0.0.0'
   description: This project contains aws skycluster compositions.
   license: Apache-2.0
   maintainer: Ehsan Etesami <eh.etesami@gmail.com>

@@ -4,17 +4,17 @@ metadata:
   name: mycluster
 spec: 
   namespace: skycluster
-  publicIp: 142.1.174.178
+  apiServer: a.b.c.d:6443
   submariner:
     enabled: true
-# status:
-#   namespace: skycluster
-#   publicIp: 142.1.174.178
-#   providerConfig:
-#     helm:
-#       name: provider-helm-12345
-#     kubernetes:
-#       name: provider-kubernetes-67890
-#   submariner:
-#     enabled: true
-#     configMapName: submariner-config
+status:
+  namespace: skycluster
+  apiServer: a.b.c.d:6443
+  providerConfig:
+    helm:
+      name: provider-helm-12345
+    kubernetes:
+      name: provider-kubernetes-67890
+  submariner:
+    enabled: true
+    configMapName: submariner-config
