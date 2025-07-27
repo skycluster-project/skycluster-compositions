@@ -32,3 +32,20 @@ up composition generate apis/xskyclusters/definition.yaml
 kcl mod init
 kcl mod update
 ```
+
+## Automation
+
+```bash
+# use apply-templates and apply-examples
+# to automate generation of xrd and applying the definitions
+# and compositions
+
+apply-examples <path-to-example-file>
+apply-templates [<path-to-api-folders>]
+kcl-copy [<path-to-api-folders>]
+
+# example:
+apply-remplates xsetup xoverlay
+
+kcl-copy xsetup xoverlay
+```

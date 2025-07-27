@@ -28,6 +28,17 @@ spec:
                     type: Value
                     value: skycluster
             - kind: XSetup
+              into: SkySetups
+              apiVersion: skycluster.io/v1alpha1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+            - kind: XSetup
               into: XSetup
               apiVersion: aws.skycluster.io/v1alpha1
               type: Selector
@@ -47,7 +58,7 @@ spec:
                   - key: skycluster.io/provider-zone
                     type: FromCompositeFieldPath
                     valueFromFieldPath: spec.providerRef.zones.primary
-                  - key: skycluster.io/application-name
+                  - key: skycluster.io/application-id
                     type: FromCompositeFieldPath
                     valueFromFieldPath: spec.applicationId
     - step: resources
@@ -64,7 +75,7 @@ spec:
             provider-helm = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             provider-kubernetes = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
-          source: |-
+          source: |+
             import json
             import crypto
             import regex
@@ -76,35 +87,39 @@ spec:
             import provider_aws.iam.v1beta1 as iamv1beta1
             import provider_aws.sqs.v1beta1 as sqsv1beta1
             import provider_aws.cloudwatchevents.v1beta1 as cwev1beta1
-            
+
             oxr = option("params")?.oxr
             assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
             assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
             ocds = option("params")?.ocds
-            
+
             ctx = option("params")?.ctx
             assert ctx is not Undefined, "Context must be provided in the params"
-            
+
             _oxrProvRegion = oxr.spec.providerRef.region
             _oxrProvZone = oxr.spec.providerRef.zones.primary
             _oxrProvPlatform = oxr.spec.providerRef.platform
             _oxrAppId = oxr.spec.providerRef.applicationId or Undefined
-            
+            _oxrServiceCidr = oxr.spec.serviceCidr or Undefined
+
             assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
               "Provider region, primary zone, platform must be specified"
-            
+            assert _oxrServiceCidr, "Service CIDR must be specified in the oxr spec"
+
             _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
             assert _extraRes is not Undefined, "Extra resources must be provided in the context"
             _provCfg = _extraRes["ProviderConfigs"][0]
+            _skySetup = _extraRes["SkySetups"][0]
             _xSetup = _extraRes["XSetup"][0]
-            
+            _ns = _skySetup.spec.namespace
+
             _defaults = {
               deletionPolicy = "Delete"
               providerConfigRef.name = _provCfg.metadata.name
             }
-            
+
             _items = []
-            
+
             _items += [
               iamv1beta1.Role {
                 metadata = {
@@ -140,7 +155,7 @@ spec:
                   }
                 }
               },
-            
+
               eksv1beta2.Cluster {
                 metadata = {
                   labels = {
@@ -162,7 +177,7 @@ spec:
                       bootstrapClusterCreatorAdminPermissions = True
                     }
                     kubernetesNetworkConfig = {
-                      serviceIpv4Cidr = "100.70.0.0/24"
+                      serviceIpv4Cidr = _oxrServiceCidr
                     }
                     roleArnSelector = {
                       matchControllerRef = True
@@ -177,15 +192,17 @@ spec:
                           **helper._filter_default_labels(oxr.metadata.labels)
                         }
                       }
-                      subnetIdSelector.matchLabels = {
-                        **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
+                      subnetIdSelector = {
+                        matchLabels = {
+                          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
+                        }
                       }
                     }
                   }
                 }
               }
             ]
-            
+
             # _clusterSecurityGroupId = ocds?.kubernetesCluster?.Resource?.status?.atProvider?.vpcConfig?.clusterSecurityGroupId or False
             # _items += [
             #   ec2v1beta1.SecurityGroup {
@@ -206,9 +223,9 @@ spec:
             #     }
             #   }
             # ] if _clusterSecurityGroupId else []
-            
-            _connectionSecretNamespace = "skycluster"
-            
+
+            _connectionSecretNamespace = _ns
+
             _items += [
               eksv1beta1.ClusterAuth{
                 metadata = {
@@ -228,14 +245,14 @@ spec:
                     clusterNameSelector.matchControllerRef = True
                   }
                   writeConnectionSecretToRef = {
-                    name = "{}-ekscluster".format(oxr.metadata.uid)
+                    name = "{}-eks".format(oxr.metadata.uid)
                     namespace = _connectionSecretNamespace
                   }
                 }
               }
             ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["kubernetesClusterAuth"] else []
-            
-            
+
+
             _nodeGroups = oxr.spec.nodeGroups
             _items += [
               # The public node group is used to create nodes acting as gateways for the cluster.
@@ -290,7 +307,7 @@ spec:
               }
               for i, ng in _nodeGroups
             ] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
-            
+
             _items += [
               iamv1beta1.Role{
                 metadata = {
@@ -330,11 +347,11 @@ spec:
                 }
               }
             ]
-            
-            
-            
-            _principalArn = oxr.spec?.parameters?.iam?.principalArn or "arn:aws:iam::885707601199:root"
-            
+
+
+
+            _principalArn = oxr.spec?.principalArn or Undefined
+
             _items += [
               eksv1beta1.AccessEntry{
                 # force recreate when principalArn changes
@@ -388,8 +405,8 @@ spec:
                 }
               }
             ] if _principalArn else []
-            
-            
+
+
             _items += [
               eksv1beta1.Addon{
                 metadata = {
@@ -414,8 +431,8 @@ spec:
                 }
               }
             ] if helper._ready(ocds?["kubernetesClusterAuth"]) or ocds?["vpc-cni-addon"] else []
-            
-            
+
+
             _nodeGroupReady = any_true(
               [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
             )
@@ -442,8 +459,8 @@ spec:
                 }
               }
             ] if _nodeGroupReady or ocds?["aws-ebs-csi-driver-addon"] else []
-            
-            
+
+
             _items += [
               eksv1beta1.Addon{
                 metadata = {
@@ -466,7 +483,7 @@ spec:
                 }
               }
             ] if _nodeGroupReady or ocds?["eks-pod-identity-agent"] else []
-            
+
             _providerConfigTypes = ["helm", "kubernetes"]
             _items += [{
               apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1")
@@ -480,14 +497,14 @@ spec:
               }
               spec.credentials = {
                 secretRef = {
-                  name = "{}-ekscluster".format(oxr.metadata.uid)
+                  name = "{}-eks".format(oxr.metadata.uid)
                   namespace = _connectionSecretNamespace
                   key = "kubeconfig"
                 }
                 source = "Secret"
               }
             } for t in _providerConfigTypes if helper._ready(ocds?["kubernetesClusterAuth"]) or ocds?["providerConfig{}".format(t.capitalize())]]
-            
+
             _items += [{
               apiVersion: "meta.krm.kcl.dev/v1alpha1"
               kind: "CompositeConnectionDetails"
@@ -495,8 +512,8 @@ spec:
                 kubeconfig = option("params")?.ocds?["kubernetesClusterAuth"]?.ConnectionDetails?.kubeconfig
               } if ocds?["kubernetesClusterAuth"] else {}
             }]
-            
-            
+
+
             _items += [
               # Create IAM Role for Karpenter node instances
               iamv1beta1.Role {
@@ -535,7 +552,7 @@ spec:
                 }
               }
             ]
-            
+
             _items += [
               # Attach EKS Policy
               iamv1beta1.RolePolicyAttachment {
@@ -634,8 +651,8 @@ spec:
                 }
               }
             ] if ocds?["instanceNodeRole"] else []
-            
-            
+
+
             _items += [
               # Create Instance Profile
               iamv1beta1.InstanceProfile {
@@ -661,7 +678,7 @@ spec:
                 }
               },
             ]
-            
+
             _items += [
               # Create AccessEntry for Karpenter role
               # Note: If we use type here, clusterNameSelector will conflict and
@@ -697,8 +714,8 @@ spec:
                 }
               }
             ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["karpenterAccessEntry"] else []
-            
-            
+
+
             _statusClusterName = ocds?["kubernetesCluster"]?.Resource?.status?.atProvider?.clusterName
             _sqsQueueName = "karpenter-{}".format(_statusClusterName) if _statusClusterName else Undefined
             _statusSqsQueueArn = ocds?["sqsQueue"]?.Resource?.status?.atProvider?.arn or Undefined
@@ -709,7 +726,7 @@ spec:
               "arn:aws:iam::(\d+):.*", 
               "$1"
             ) if _instanceNodeRolArn else Undefined
-            
+
             _items += [
               iamv1beta1.Role{
                 metadata = {
@@ -979,7 +996,7 @@ spec:
                 }
               }
             ] if _statusClusterName and _statusAccountId and _statusSqsQueueArn and _statusInstanceNodeRoleArn else []
-            
+
             _items += [
               # Create SQS Queue for Karpenter
               sqsv1beta1.Queue {
@@ -1004,7 +1021,7 @@ spec:
                 }
               },
             ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["sqsQueue"] else []
-            
+
             _items += [
               # Create Cloudwatch Event Rules
               # Health Event Rule
@@ -1026,7 +1043,7 @@ spec:
                   # labels = {"crossplane.io/composite": _id, "type": "HealthEvent"}
                   # name = _healthEventName
                 }
-                spec = {
+                spec = _defaults | {
                   forProvider = {
                     region = _oxrProvRegion
                     eventBusName = "default"
@@ -1059,7 +1076,7 @@ spec:
                   # labels = {"crossplane.io/composite": _id, "type": "InstanceRebalance"}
                   # name = _instanceRebalanceName
                 }
-                spec = {
+                spec = _defaults | {
                   forProvider = {
                     region = _oxrProvRegion
                     eventBusName = "default"
@@ -1091,7 +1108,7 @@ spec:
                   # labels = {"crossplane.io/composite": _id, "type": "InstanceStateChange"}
                   # name = _instanceStateChangeName
                 }
-                spec = {
+                spec = _defaults | {
                   forProvider = {
                     region = _oxrProvRegion
                     eventBusName = "default"
@@ -1123,7 +1140,7 @@ spec:
                   # labels = {"crossplane.io/composite": _id, "type": "SpotInterrupt"}
                   # name = _spotInterruptName
                 }
-                spec = {
+                spec = _defaults | {
                   forProvider = {
                     region = _oxrProvRegion
                     eventBusName = "default"
@@ -1135,7 +1152,7 @@ spec:
                 }
               }
             ]
-            
+
             _items += [
               # Create Karpenter Helm Chart Release
               helmv1alpha1.Release{
@@ -1175,14 +1192,14 @@ spec:
                 }
               }
             ] if (_statusClusterName and ocds?["sqsQueue"]?.Resource?.status?.atProvider?.name) or ocds?["karpenterChart"] else []
-            
+
             _instanceProfileArn = ocds?["instanceProfile"]?.Resource?.status?.atProvider?.arn
             _statusInstanceProfileName = regex.replace(
               _instanceProfileArn,
               "arn:aws:iam::\\d+:instance-profile/(.+)",
               "$1"
             ) if _instanceProfileArn else Undefined
-            
+
             _items += [
               # Create EC2NodeClass for Karpenter
               k8sv1alpha1.Object {
@@ -1243,7 +1260,7 @@ spec:
                 }
               }
             ] if (_statusClusterName and _statusInstanceProfileName) or ocds?["karpenterNodeClass"] else []
-            
+
             _items += [
               # Create NodePool for Karpenter
               k8sv1alpha1.Object {
@@ -1339,9 +1356,9 @@ spec:
                   }
                 }
               }
-            ] if _statusInstanceProfileName or ocds?["karpenterNodePool"] else []
-            
-            
+            ] if (_statusInstanceProfileName and helper._ready(ocds?["karpenterNodeClass"])) or ocds?["karpenterNodePool"] else []
+
+
             # items += [
             #   helmv1alpha1.Release{
             #     metadata = {
@@ -1387,8 +1404,8 @@ spec:
             #     }
             #   } if _principalArn else []
             # ]
-            
-            
+
+
             # submarinerBroker = helmv1alpha1.Release {
             #   metadata = {
             #     labels = {
@@ -1416,9 +1433,9 @@ spec:
             #     }
             #   }
             # }
-            
+
             # _submarinerBrokerStatus = ocds?["submarinerBroker"].Resource?.status?.atProvider?.status or Undefined
-            
+
             # k8s = k8sv1alpha1.Object{
             #   metadata = {
             #     labels = {
@@ -1465,9 +1482,10 @@ spec:
             #     }
             #   }
             # }
-            
+
             items =  _items
-            
+
+
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready

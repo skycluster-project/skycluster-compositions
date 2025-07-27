@@ -35,8 +35,17 @@ spec:
                         type: string
                     type: object
                 type: object
-              serviceCidr:
-                type: string
+              subnets:
+                items:
+                  properties:
+                    cidr:
+                      type: string
+                    type:
+                      type: string
+                    zone:
+                      type: string
+                  type: object
+                type: array
               vpcCidr:
                 type: string
             type: object

@@ -114,8 +114,10 @@ _items += [
               **helper._filter_default_labels(oxr.metadata.labels)
             }
           }
-          subnetIdSelector.matchLabels = {
-            **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
+          subnetIdSelector = {
+            matchLabels = {
+              **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
+            }
           }
         }
       }
@@ -963,7 +965,7 @@ _items += [
       # labels = {"crossplane.io/composite": _id, "type": "HealthEvent"}
       # name = _healthEventName
     }
-    spec = {
+    spec = _defaults | {
       forProvider = {
         region = _oxrProvRegion
         eventBusName = "default"
@@ -996,7 +998,7 @@ _items += [
       # labels = {"crossplane.io/composite": _id, "type": "InstanceRebalance"}
       # name = _instanceRebalanceName
     }
-    spec = {
+    spec = _defaults | {
       forProvider = {
         region = _oxrProvRegion
         eventBusName = "default"
@@ -1028,7 +1030,7 @@ _items += [
       # labels = {"crossplane.io/composite": _id, "type": "InstanceStateChange"}
       # name = _instanceStateChangeName
     }
-    spec = {
+    spec = _defaults | {
       forProvider = {
         region = _oxrProvRegion
         eventBusName = "default"
@@ -1060,7 +1062,7 @@ _items += [
       # labels = {"crossplane.io/composite": _id, "type": "SpotInterrupt"}
       # name = _spotInterruptName
     }
-    spec = {
+    spec = _defaults | {
       forProvider = {
         region = _oxrProvRegion
         eventBusName = "default"
@@ -1276,7 +1278,7 @@ _items += [
       }
     }
   }
-] if _statusInstanceProfileName or ocds?["karpenterNodePool"] else []
+] if (_statusInstanceProfileName and helper._ready(ocds?["karpenterNodeClass"])) or ocds?["karpenterNodePool"] else []
 
 
 # items += [

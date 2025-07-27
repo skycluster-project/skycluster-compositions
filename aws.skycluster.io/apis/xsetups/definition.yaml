@@ -36,6 +36,8 @@ spec:
               subnets:
                 items:
                   properties:
+                    cidr:
+                      type: string
                     type:
                       type: string
                     zone:
