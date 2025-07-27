@@ -45,6 +45,7 @@ _items += [
     spec = {
       vpcCidr = _oxrVpcCidr
       subnets = _oxrSubnets
+      gateway = oxr.spec?.gateway
       providerRef={
         platform= _oxrProvPlatform
         region= _oxrProvRegion

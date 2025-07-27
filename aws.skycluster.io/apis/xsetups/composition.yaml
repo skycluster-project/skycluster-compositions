@@ -27,6 +27,34 @@ spec:
                   - key: skycluster.io/managed-by
                     type: Value
                     value: skycluster
+            - kind: XSetup
+              into: SkySetups
+              apiVersion: skycluster.io/v1alpha1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+            - kind: ConfigMap
+              into: ProviderSettings
+              apiVersion: v1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/provider-platform
+                    type: Value
+                    value: aws
+                  - key: skycluster.io/provider-region
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.region
+                  - key: skycluster.io/provider-zone
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.zones.primary
             - kind: Secret
               into: KeyPairSecret
               apiVersion: v1
@@ -41,6 +69,20 @@ spec:
                   - key: skycluster.io/secret-type
                     type: Value
                     value: keypair
+            - kind: ConfigMap
+              into: InitScriptMap
+              apiVersion: v1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+                  - key: skycluster.io/script-type
+                    type: Value
+                    value: provider-init
     - step: resources
       functionRef:
         name: function-kcl
@@ -57,8 +99,10 @@ spec:
           source: |-
             import json
             import base64
+            import yaml
             import helper.v1alpha1.main as helper
             import provider_aws.ec2.v1beta1 as ec2v1beta1
+            import provider_kubernetes.v1alpha2 as k8sv1alpha2
 
             oxr = option("params").oxr # observed composite resource
             ocds = option("params")?.ocds # observed composed resources
@@ -74,11 +118,15 @@ spec:
             _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
             assert _extraRes is not Undefined, "Extra resources must be provided in the context"
             _provCfg = _extraRes["ProviderConfig"][0]
-
+            _provSettings = _extraRes["ProviderSettings"][0]
+            assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
+            _initScript = _extraRes["InitScriptMap"][0]
+            _skySetup = _extraRes["SkySetups"][0]
             _keypair = _extraRes["KeyPairSecret"][0]
             _keypairDecoded = base64.decode(_keypair.data.config).strip('"')
             _publicKey = json.decode(value=_keypairDecoded).publicKey
             _privateKey = json.decode(value=_keypairDecoded).privateKey
+            _ns = _skySetup.spec.namespace or "skycluster-system"
 
             _oxrProvRegion = oxr.spec.providerRef.region
             _oxrProvZone = oxr.spec.providerRef.zones?.primary
@@ -168,7 +216,7 @@ spec:
                 }
                 annotations = {
                   **oxr.metadata?.annotations,
-                  **helper._set_resource_name("network-interface"),
+                  **helper._set_resource_name("networkInterface"),
                   **helper._is_paused_label(oxr.metadata.labels),
                 }
               },
@@ -600,9 +648,122 @@ spec:
               }
             }]
 
-            _keyPairId = ocds?.keypair?.Resource?.status?.atProvider?.keyPairId or None
-            _keypairName = ocds?.keypair?.Resource?.status?.atProvider?.id or None
-            _vpcId = ocds?.vpc?.Resource?.status?.atProvider?.id or None
+            _items += [
+              ec2v1beta1.EIP {
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("elasticIP"),
+                    **helper._is_paused_label(oxr.metadata.labels),
+                  }
+                },
+                spec = {
+                  forProvider = {
+                    domain = "vpc"
+                    networkBorderGroup = ""
+                    networkInterfaceSelector = {
+                      matchControllerRef = True
+                      matchLabels = {
+                        **helper._filter_default_labels(oxr.metadata.labels)
+                        "skycluster.io/interface-id" = "network-interface",
+                      }
+                    }
+                    region = _oxrProvRegion,
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              }
+            ]
+
+            _images = yaml.decode(_provSettings?.data?["images.yaml"]) if _provSettings?.data?["images.yaml"] else Undefined
+            assert _images is not Undefined, "Images must be provided in the provider settings"
+            _amis = [z.name for z in _images?.zones if _images and z.zone == _oxrProvZone]
+            assert len(_amis) == 1, "AMI for the specified zone must be provided in the images resource"
+            _ami = _amis[0]
+            assert _ami, "AMI must be specified in the provider settings"
+
+            _itypesYaml = yaml.decode(_provSettings?.data?["instance-types.yaml"]) if _provSettings?.data?["instance-types.yaml"] else Undefined
+            assert _itypesYaml is not Undefined, "Instance types must be provided in the provider settings"
+            _itypesZone = [fz.flavors for fz in _itypesYaml if fz.zone == _oxrProvZone]
+            assert len(_itypesZone) == 1, \
+              "Instance types for the specified zone must be provided in the instance types resource and exactly one flavor must be specified per zone"
+            _itypes = [{
+              ram = fl.ram
+              cpu = fl.cpu
+              name = fl.name
+              nameLabel = fl.nameLabel
+            } for fl in _itypesZone[0]]
+
+            _oxrGwFlavor = oxr.spec?.gateway?.flavor 
+            _itLabel = _oxrGwFlavor if (_oxrGwFlavor and _oxrGwFlavor in [_i.nameLabel for _i in _itypes]) else Undefined
+            defaultFlavors = ["2vCPU-4GB", "2vCPU-8GB", "4vCPU-4GB"]
+            _itLabel = _itLabel or defaultFlavors[0]
+
+            _it = [d.name for d in _itypes if d.nameLabel == _itLabel]?[0]
+            assert _it, "Gateway flavor must be specified in the XSkyCluster spec or default flavors must be available"
+
+            _keyPairId = ocds?.keypair?.Resource?.status?.atProvider?.keyPairId 
+            _keypairName = ocds?.keypair?.Resource?.status?.atProvider?.id 
+
+            _userData = _initScript?.data?["cloud-init"] 
+            assert _userData, "Cloud-init script must be provided in the init script map"
+            _userData = _userData.replace("__SUBNETCIDR__", _vpcCidr)
+
+            _items += [
+              ec2v1beta1.Instance{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("gwInstance"),
+                    **helper._is_paused_label(oxr.metadata.labels),
+                  }
+                },
+                spec = {
+                  forProvider = {
+                    ami = _ami,
+                    instanceType = _it,
+                    sourceDestCheck = False,
+                    region = _oxrProvRegion,
+                    keyName = _keypairName,
+                    rootBlockDevice = [{
+                      volumeSize = oxr.spec?.gateway?.volumeSize or 8,
+                      volumeType = oxr.spec?.gateway?.volumeType or "gp2",
+                    }]
+                    networkInterface = [
+                      {
+                        networkInterfaceIdSelector = {
+                          matchControllerRef = True,
+                          matchLabels = {
+                            **helper._filter_default_labels(oxr.metadata.labels)
+                            "skycluster.io/interface-id" = "network-interface",
+                          }
+                        }
+                        deviceIndex = 0,
+                        deleteOnTermination = False
+                      }
+                    ]
+                    userData = _userData
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              }
+            ] if helper._ready(ocds?["networkInterface"]) or ocds?["gwInstance"] else []
+
+            _keyPairId = ocds?.keypair?.Resource?.status?.atProvider?.keyPairId 
+            _keypairName = ocds?.keypair?.Resource?.status?.atProvider?.id 
+            _vpcId = ocds?.vpc?.Resource?.status?.atProvider?.id
             _ocdsSubnets = [v.Resource for k, v in ocds if k.find("subnet") != -1 and v.Resource]
 
             dxr = {

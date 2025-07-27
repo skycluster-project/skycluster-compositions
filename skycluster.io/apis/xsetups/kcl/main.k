@@ -20,7 +20,7 @@ _provCfgs = _extraRes["Providers"] or []
 _helmProv = [cfg for cfg in _provCfgs if "provider-helm" in cfg.spec?.package]
 _k8sProv = [cfg for cfg in _provCfgs if "provider-kubernetes" in cfg.spec?.package]
 
-_ns = oxr.spec?.namespace or "default"
+_ns = oxr.spec?.namespace or "skycluster-system"
 
 
 _items = [

@@ -21,8 +21,6 @@ spec:
             properties:
               apiServer:
                 type: string
-              namespace:
-                type: string
               submariner:
                 properties:
                   enabled:

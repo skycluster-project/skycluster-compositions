@@ -21,6 +21,15 @@ spec:
             properties:
               applicationId:
                 type: string
+              gateway:
+                properties:
+                  flavor:
+                    type: string
+                  volumeSize:
+                    type: number
+                  volumeType:
+                    type: string
+                type: object
               providerRef:
                 properties:
                   platform:
