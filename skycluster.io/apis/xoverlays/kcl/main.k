@@ -22,6 +22,7 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 _secrets = _extraRes["Secrets"] or Undefined
 assert _secrets is not Undefined, "Secrets resource must be provided in the extra resources"
 
+# For Submariner
 _brokerSecrets = [sc for sc in _secrets if "submariner-k8s-broker-client" in sc.metadata.name] or []
 assert len(_brokerSecrets) == 1, "Exactly one broker secret must be provided in the extra resources"
 _brokerSecret = _brokerSecrets[0]
@@ -45,7 +46,7 @@ assert _xsetup is not Undefined, "XSetup resource must be provided in the extra 
 
 _apiServer = _xsetup.status?.apiServer or Undefined
 assert _apiServer is not Undefined, "Broker public IP and port must be provided"
-_ns = _xsetup.status?.namespace or "default"
+_ns = "skycluster-system"
 
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
 _helmProvCfgName = _xsetup.status?.providerConfig?.helm?.name or Undefined
@@ -126,14 +127,6 @@ _items += [
               "namespace": _ns,
               "ca" : _brokerCA, 
               "token": base64.decode(_brokerToken),
-            },
-            "submariner": {
-              "serviceDiscovery": "false",
-              "cableDriver": "wireguard",
-              "clusterId": "broker-skycluster",
-              "clusterCidr": _clusterCidr,
-              "serviceCidr": _serviceCidr,
-              "natEnabled": "true"
             }
           })
         }
@@ -147,6 +140,7 @@ _items += [
 
 _submarinerSecretName = ocds?["submarinerSecretObj"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
 
+# submarinerClientCluster
 _items += [
   helmv1beta1.Release{
     metadata = {
@@ -172,9 +166,19 @@ _items += [
             secretKeyRef = {
               key = "values.yaml"
               name = _submarinerSecretName if _submarinerSecretName else "submariner-connection-secret"
-              namespace = _ns if _ns else "default"
+              namespace = _ns if _ns else "skycluster-system"
             }
         }]
+        values = {
+          submariner = {
+            serviceDiscovery = "false",
+            cableDriver = "wireguard",
+            clusterId = "broker-skycluster",
+            clusterCidr = _clusterCidr,
+            serviceCidr = _serviceCidr,
+            natEnabled = "true"
+          }
+        }
       }
       providerConfigRef = {
         name = _helmProvCfgName
@@ -183,17 +187,253 @@ _items += [
   }
 ] if helper._ready(ocds?["submarinerSecretObj"]) or ocds?["submarinerClientCluster"] else []
 
+
+_apiServerForHeadscale = _apiServer.split(":")[0]
+assert _apiServerForHeadscale, "API server address must be provided"
+
+# Pod Generating Headscale Certificate
+_items += [
+  k8sv1alpha2.Object{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        "skycluster.io/managed-by": "skycluster",
+      },
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("headscaleCertGenPod")
+      }
+    }
+    spec =  {
+      forProvider.manifest = {
+        apiVersion = "v1"
+        kind = "Pod"
+        metadata = { 
+          name = "headscale-cert-gen",
+          namespace = _ns if _ns else "skycluster-system",
+          labels = {
+            **oxr.metadata?.labels,
+            "skycluster.io/managed-by": "skycluster",
+            "skycluster.io/pod-type": "headscale-cert-gen"
+          },
+          annotations = {
+            **oxr.metadata?.annotations,
+          }
+        }
+        spec = {
+          restartPolicy = "Never"
+          containers = [{
+            name = "headscale-cert-gen"
+            image = "etesami/ca-signer:latest"
+            imagePullPolicy = "Always"
+            env = [
+              {
+                name = "CA_SECRET_NAME"
+                value = "skycluster-self-ca"
+              },
+              {
+                name = "OUTPUT_SECRET_NAME"
+                value = "headscale-cert"
+              },
+              {
+                name = "NAMESPACE"
+                value = _ns if _ns else "skycluster-system"
+              },
+              {
+                name = "CERT_COMMON_NAME"
+                value = "skycluster.local"
+              },
+              {
+                name = "CERT_SANS"
+                value = "DNS:skycluster.local,IP:{}".format(_apiServerForHeadscale)
+              }
+            ]
+          }]
+          serviceAccountName = "skycluster-sva"
+          restartPolicy = "Never"
+        }
+      }
+      providerConfigRef = {
+        name = _k8sProvCfgName
+      }
+    }
+  }
+] if (_k8sProvCfgName and _apiServerForHeadscale) or ocds?["headscaleCertGenPod"] else []
+
+
+# Headscale-server Deployment
+_items += [
+  # Init and main headscale-server containers
+  k8sv1alpha2.Object{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        "skycluster.io/managed-by": "skycluster",
+      },
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("headscaleServerDeployment")
+      }
+    }
+    spec =  {
+      forProvider.manifest = {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        metadata = { 
+          name = "headscale-server",
+          namespace = _ns if _ns else "skycluster-system",
+          labels = {
+            **oxr.metadata?.labels,
+            "skycluster.io/managed-by": "skycluster",
+            "skycluster.io/deploy-type": "headscale-server"
+          },
+          annotations = {
+            **oxr.metadata?.annotations,
+          }
+        }
+        spec = {
+          selector.matchLabels = {"app": "headscale-server"}
+          template = {
+            metadata.labels = {"app": "headscale-server"}
+            spec = {
+              volumes = [
+                {
+                  name = "config-volume"
+                  persistentVolumeClaim = {
+                    claimName = "headscale-config-pvc"
+                  }
+                },
+                {
+                  name = "headscale-storage",
+                  persistentVolumeClaim = {
+                    claimName = "headscale-pvc"
+                  }
+                }
+              ]
+              initContainers = [{
+                name = "headscale-init"
+                image = "etesami/headscale-init:latest"
+                env = [
+                  {
+                    name = "SECRET_NAMESPACE"
+                    value = _ns if _ns else "skycluster-system"
+                  },
+                  {
+                    name = "SECRET_NAME"
+                    value = "headscale-cert"
+                  },
+                  {
+                    name = "HEADSCALE_SERVER_URL"
+                    value = "https://{}:8080".format(_apiServerForHeadscale)
+                  }
+                ]
+                volumeMounts = [{
+                  name = "config-volume"
+                  mountPath = "/config"
+                }]
+                workingDir = "/app"
+              }, {
+                name = "headscale-config-viewer"
+                image = "alpine:3.22.1"
+                command = ["/bin/sh", "-c"]
+                args = ["ls /etc/headscale && cat /etc/headscale/config.yml"]
+                volumeMounts = [{
+                  name = "config-volume"
+                  mountPath = "/etc/headscale"
+                }]
+              },{
+                name = "headscale-init-config",
+                image = "etesami/headscale-init-config:latest",
+                volumeMounts = [{
+                  name = "config-volume",
+                  mountPath = "/etc/headscale"
+                }, {
+                  name = "headscale-storage",
+                  mountPath = "/var/lib/headscale"
+                }]
+              }]
+              containers = [{
+                name = "headscale-server"
+                image = "etesami/headscale-server:c3354cb"
+                volumeMounts = [{
+                  name = "config-volume"
+                  mountPath = "/etc/headscale"
+                }, {
+                  name = "headscale-storage"
+                  mountPath = "/var/lib/headscale"
+                }]
+                args = [
+                  "serve",
+                  "--config",
+                  "/etc/headscale/config.yml"
+                ]
+                ports = [{
+                  containerPort = 8080
+                  protocol = "TCP"
+                }]
+              }]
+              serviceAccountName = "skycluster-sva"
+            }
+          }
+        }
+      }
+      providerConfigRef = {
+        name = _k8sProvCfgName
+      }
+    }
+  }
+  
+  # Service for headscale-server
+  k8sv1alpha2.Object{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        "skycluster.io/managed-by": "skycluster",
+      },
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("headscaleServerService")
+      }
+    }
+    spec = {
+      forProvider.manifest = {
+        apiVersion = "v1"
+        kind = "Service"
+        metadata = { 
+          name = "headscale-server",
+          namespace = _ns if _ns else "skycluster-system",
+          labels = {
+            **oxr.metadata?.labels,
+            "skycluster.io/managed-by": "skycluster",
+            "skycluster.io/service-type": "headscale-server"
+          },
+          annotations = {
+            **oxr.metadata?.annotations,
+          }
+        }
+        spec = {
+          type = "NodePort"
+          ports = [{
+            port = 8080
+            targetPort = 8080
+            nodePort = 30080
+          }]
+          selector = {"app": "headscale-server"}
+        }
+      }
+      providerConfigRef = {
+        name = _k8sProvCfgName
+      }
+    }
+  }
+
+] if helper._ready(ocds?["headscaleCertGenPod"]) or ocds?["headscaleServerDeployment"] else []
+
+
 dxr = [{
   **option("params").dxr 
   status.connectionSecretName = _submarinerSecretName if _submarinerSecretName else Undefined
   status.namespace = _ns if _ns else Undefined
-  # status.dummy = {
-  #   secrets = len(_brokerSecrets) or "not-defined"
-  #   name = [sc.metadata.name for sc in _brokerSecrets] or "not-defined"
-  #   date = [k for k in _brokerSecret.data]
-  #   ca = base64.decode(_brokerSecret?.data?["ca.crt"]) or "not-defined"
-  #   token = base64.decode(_brokerSecret?.data?["token"]) or "not-defined"
-  # }
 }] 
 
 items = _items + dxr

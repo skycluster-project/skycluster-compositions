@@ -1,6 +1,6 @@
 import helper.v1alpha1.main as helper
 import provider_helm.v1beta1 as helmv1beta1
-import provider_kubernetes.v1alpha1 as k8sv1beta1
+import provider_kubernetes.v1alpha1 as k8sv1alpha1
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -42,7 +42,7 @@ _items = [
 ] if _helmProv else []
 
 _items += [
-  k8sv1beta1.ProviderConfig{
+  k8sv1alpha1.ProviderConfig{
     metadata = {
       labels = {"skycluster.io/managed-by": "skycluster"}
       annotations = {

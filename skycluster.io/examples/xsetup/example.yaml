@@ -3,7 +3,6 @@ kind: XSetup
 metadata:
   name: mycluster
 spec: 
-  namespace: skycluster
   apiServer: a.b.c.d:6443
   submariner:
     enabled: true
