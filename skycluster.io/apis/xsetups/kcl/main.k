@@ -10,9 +10,6 @@ ocds = option("params")?.ocds # observed composed resources
 # _dxr = option("params").dxr # desired composite resource
 # dcds = option("params").dcds # desired composed resources
 
-# assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
-# assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
-
 ctx = option("params")?.ctx
 assert ctx is not Undefined, "Context must be provided in the params"
 
@@ -279,6 +276,12 @@ _items += [
               },{
                 name = "headscale-init-config",
                 image = "etesami/headscale-init-config:latest",
+                env = [
+                  {
+                    name = "HEADSCALE_SERVER_URL"
+                    value = "https://{}:8080".format(_apiServerForHeadscale)
+                  },
+                ]
                 volumeMounts = [{
                   name = "config-volume",
                   mountPath = "/etc/headscale"
@@ -378,7 +381,7 @@ dxr = [{
     } if _k8sProvCfgName else Undefined
   } if _helmProvCfgName or _k8sProvCfgName else Undefined
   status.submariner.connectionSecretName = ocds?["xoverlay"]?.Resource?.status?.connectionSecretName or Undefined
-  status.headscale.connectionSecretName = Undefined,
+  status.headscale.connectionSecretName = "headscale-connection-secret",
   status.keypair = {
     secretName = _keypair.metadata?.name or Undefined,
     secretNamespace = _keypair.metadata?.namespace or "skycluster-system",
