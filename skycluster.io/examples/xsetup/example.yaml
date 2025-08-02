@@ -15,5 +15,12 @@ status:
     kubernetes:
       name: provider-kubernetes-67890
   submariner:
-    enabled: true
-    configMapName: submariner-config
+    connectionSecretName: submariner-config
+  headscale:
+    connectionSecretName: headscale-config
+  log: "Setup completed successfully."
+  keypair:
+    secretName: example-keypair
+    secretNamespace: skycluster-system
+    publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
+  

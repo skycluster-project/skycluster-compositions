@@ -32,6 +32,22 @@ spec:
             properties:
               apiServer:
                 type: string
+              headscale:
+                properties:
+                  connectionSecretName:
+                    type: string
+                type: object
+              keypair:
+                properties:
+                  publicKey:
+                    type: string
+                  secretName:
+                    type: string
+                  secretNamespace:
+                    type: string
+                type: object
+              log:
+                type: string
               namespace:
                 type: string
               providerConfig:
@@ -49,10 +65,8 @@ spec:
                 type: object
               submariner:
                 properties:
-                  configMapName:
+                  connectionSecretName:
                     type: string
-                  enabled:
-                    type: boolean
                 type: object
             type: object
         required:
