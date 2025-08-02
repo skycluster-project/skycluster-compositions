@@ -1,0 +1,21 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XK8S
+metadata:
+  name: example
+spec: 
+  applicationId: example-app
+  serviceCidr: 10.0.0.0/24
+  nodeTypes:
+    - "t3.medium"
+  principal:
+    type: user | role | serviceAccount | servicePrincipal | managedIdentity
+    id: string # ARN (AWS) | member (GCP) | principalId (Azure)
+  providerRef:
+    # The provider is identified by the combination 
+    # of the provider platform, the region and the primary zone.
+    platform: aws
+    region: us-east-1
+    zones: 
+      primary: us-east-1a
+      secondary: us-east-1b
+

@@ -3,7 +3,6 @@ import base64
 import yaml
 import helper.v1alpha1.main as helper
 import provider_aws.ec2.v1beta1 as ec2v1beta1
-import provider_kubernetes.v1alpha2 as k8sv1alpha2
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -78,7 +77,7 @@ _subnets = []
 _subnets +=  [{
     "type" = sub.type,
     "zone" = sub.zone,
-    "cidrBlock" = sub.cidrBlock if sub.cidrBlock else "{0}.{1}.{2}.0/24".format(_vpcCidrFirst, _vpcCidrSecond, int(_vpcCidrThird) + i),
+    "cidrBlock" = sub.cidr,
 } for i, sub in oxr.spec.subnets]
 
 _items += [ec2v1beta1.Subnet{
@@ -486,7 +485,7 @@ _items += secGrpRulesInboundTcp
 
 _udpPortDefaults = [
   {"fromPort" = port, "toPort" = port} 
-    for port in [3478 4500 4789 8472 41641 51820 51821]
+    for port in [3478 4500 4789 4800 8472 41641 51820 51821]
 ]
 _udpPortsToUse = _udpPorts if _udpPorts else _udpPortDefaults
 
@@ -675,6 +674,7 @@ dxr = {
   } if _keyPairId and _keypairName else {},
   status.vpc = {
     id = _vpcId
+    cidrBlock = _vpcCidr 
   } if _vpcId else {},
   status.subnets = [
     {

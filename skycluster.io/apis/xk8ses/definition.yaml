@@ -1,9 +1,9 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
-  name: xk8ses.aws.skycluster.io
+  name: xk8ses.skycluster.io
 spec:
-  group: aws.skycluster.io
+  group: skycluster.io
   names:
     categories:
     - crossplane
@@ -21,30 +21,17 @@ spec:
             properties:
               applicationId:
                 type: string
-              nodeGroups:
+              nodeTypes:
                 items:
-                  properties:
-                    autoScaling:
-                      properties:
-                        enabled:
-                          type: boolean
-                        maxSize:
-                          type: number
-                        minSize:
-                          type: number
-                      type: object
-                    instanceTypes:
-                      items:
-                        type: string
-                      type: array
-                    nodeCount:
-                      type: number
-                    publicAccess:
-                      type: boolean
-                  type: object
+                  type: string
                 type: array
-              principalArn:
-                type: string
+              principal:
+                properties:
+                  id:
+                    type: string
+                  type:
+                    type: string
+                type: object
               providerRef:
                 properties:
                   platform:
@@ -64,9 +51,6 @@ spec:
             type: object
           status:
             description: XK8SStatus defines the observed state of XK8S.
-            properties:
-              log:
-                type: string
             type: object
         required:
         - spec

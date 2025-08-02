@@ -10,6 +10,10 @@ metadata:
     # skycluster.io/pause: "true"
 spec:
   vpcCidr: 10.20.30.0/16
+  gateway:
+    flavor: 2vCPU-4GB
+    volumeType: gp2
+    volumeSize: 8
   # Subnet CIDRs should be within the VPC CIDR range
   subnets:
     - type: public
@@ -31,6 +35,7 @@ status:
     id: example-keypair-id
   vpc:
     id: vpc-12345678
+    cidrBlock: "10.20.30.0/16"
   subnets:
     - type: public
       id: subnet-12345678

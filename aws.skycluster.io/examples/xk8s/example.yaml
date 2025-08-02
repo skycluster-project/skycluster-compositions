@@ -10,6 +10,10 @@ metadata:
 spec: 
   applicationId: example-app
   serviceCidr: 10.0.0.0/24
+  # Principal ARN for the IAM role that has permissions to manage the cluster
+  # The purpose of this role is to allow the user assuming the role to 
+  # view the cluster status through the AWS console or CLI (+optional)
+  principalArn: arn:aws:iam::123456789012:role/ExampleRole
   nodeGroups:
     - nodeCount: 1
       instanceTypes:
@@ -34,3 +38,5 @@ spec:
       primary: us-east-1a
       secondary: us-east-1b
     # name: example-provider
+status:
+  log: "This is a placeholder for the status field"

@@ -1,0 +1,82 @@
+import helper.v1alpha1.main as helper
+
+oxr = option("params").oxr # observed composite resource
+ocds = option("params")?.ocds # observed composed resources
+# _dxr = option("params").dxr # desired composite resource
+# dcds = option("params").dcds # desired composed resources
+
+# assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
+# assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
+
+ctx = option("params")?.ctx
+assert ctx is not Undefined, "Context must be provided in the params"
+
+# _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
+# assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+# _secrets = _extraRes["Secrets"] or Undefined
+
+_oxrProvPlatform = oxr.spec?.providerRef?.platform or Undefined
+_oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
+_oxrProvZones = oxr.spec?.providerRef?.zones or Undefined
+_oxrProvZone = oxr.spec?.providerRef?.zones?.primary or Undefined
+
+assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone, \
+  "Provider platform, region, and primary zone and must be specified in the providerRef"
+
+_svcCidr = oxr.spec?.serviceCidr or Undefined
+_nodesTypes = oxr.spec?.nodeTypes or Undefined
+_principal = oxr.spec?.principal or Undefined
+
+_items = []
+
+_items += [
+  {
+    apiVersion = "aws.skycluster.io/v1alpha1"
+    kind = "XK8S"
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("xk8s")
+      }
+    }
+    spec = {
+      applicationId = oxr.spec?.applicationId or Undefined
+      serviceCidr = oxr.spec?.serviceCidr or Undefined
+      principalArn = oxr.spec?.principal?.id or Undefined
+      nodeGroups = [
+        {
+          nodeCount = 1
+          instanceTypes = ["t3.medium"]
+          publicAccess = True
+          autoScaling = {
+            enabled = True
+            minSize = 1
+            maxSize = 1
+          }
+        },
+        {
+          nodeCount = 1
+          instanceTypes = _nodesTypes 
+          publicAccess = False
+          autoScaling = {
+            enabled = True
+            minSize = 1
+            maxSize = 3
+          }
+        } if _nodesTypes else {}
+      ]
+      providerRef = {
+        platform = _oxrProvPlatform
+        region = _oxrProvRegion
+        zones = _oxrProvZones
+      }
+    }
+  } if _oxrProvPlatform == "aws" else Undefined
+]
+
+
+items = _items
