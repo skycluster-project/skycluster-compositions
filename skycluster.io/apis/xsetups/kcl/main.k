@@ -292,7 +292,7 @@ _items += [
               }]
               containers = [{
                 name = "headscale-server"
-                image = "etesami/headscale-server:c3354cb"
+                image = "etesami/headscale-server:latest"
                 volumeMounts = [{
                   name = "config-volume"
                   mountPath = "/etc/headscale"

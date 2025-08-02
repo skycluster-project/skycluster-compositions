@@ -60,6 +60,29 @@ spec:
             type: object
           status:
             description: XProviderInstanceStatus defines the observed state of XProviderInstance.
+            properties:
+              gateway:
+                properties:
+                  privateIp:
+                    type: string
+                  publicIp:
+                    type: string
+                type: object
+              log:
+                type: string
+              subnets:
+                items:
+                  properties:
+                    cidr:
+                      type: string
+                    type:
+                      type: string
+                    zone:
+                      type: string
+                  type: object
+                type: array
+              vpcCidr:
+                type: string
             type: object
         required:
         - spec
