@@ -14,6 +14,9 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 _provSettings = _extraRes["ProviderSettings"]?[0] 
 assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
 
+_skySetup = _extraRes["SkySetups"][0]
+assert _skySetup is not Undefined, "SkySetup must be provided in the extra resources"
+
 _initScripts = _extraRes["InitScripts"]
 assert _initScripts is not Undefined, "Init scripts must be provided in the extra resources"
 
@@ -29,6 +32,9 @@ assert _oxrVpcCidr, "VPC CIDR must be specified in the oxr spec"
 
 _oxrSubnets = oxr.spec?.subnets or Undefined
 assert len(_oxrSubnets) > 0, "At least one subnet must be specified in the oxr spec"
+
+_publicKey = _skySetup.status?.keypair?.publicKey or Undefined
+assert _publicKey, "Public key must be specified in the SkySetup status"
 
 _scripts = ["ca-certificate", "ip-forwarding", "networkd-dispatcher", "tailscale", "iptables-postrouting"]
 _userData = helper._select_init_scripts(_initScripts, _scripts) or Undefined
@@ -52,6 +58,7 @@ _items += [
     spec = {
       vpcCidr = _oxrVpcCidr
       subnets = _oxrSubnets
+      publicKey = _publicKey
       gateway = {
         userData = _userData
         image = helper._get_image_aws(_provSettings, "ubuntu-24.04", _oxrProvZone) or Undefined

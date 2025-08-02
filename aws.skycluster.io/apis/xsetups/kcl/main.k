@@ -17,15 +17,10 @@ assert ctx is not Undefined, "Context must be provided in the params"
 
 _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+
 _provCfg = _extraRes["ProviderConfig"][0]
-_provSettings = _extraRes["ProviderSettings"][0]
-assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
-_initScript = _extraRes["InitScriptMap"][0]
 _skySetup = _extraRes["SkySetups"][0]
-_keypair = _extraRes["KeyPairSecret"][0]
-_keypairDecoded = base64.decode(_keypair.data.config).strip('"')
-_publicKey = json.decode(value=_keypairDecoded).publicKey
-_privateKey = json.decode(value=_keypairDecoded).privateKey
+
 _ns = _skySetup.spec.namespace or "skycluster-system"
 
 _oxrProvRegion = oxr.spec.providerRef.region
@@ -252,7 +247,6 @@ _items += [ec2v1beta1.Route{
 }]
 
 # Private route table configuration
-
 _items += [ec2v1beta1.RouteTable{
   metadata = {
     labels = {
@@ -269,7 +263,7 @@ _items += [ec2v1beta1.RouteTable{
   spec = {
     forProvider = {
       region = _oxrProvRegion,
-      vpcIdSelector .matchControllerRef = True
+      vpcIdSelector.matchControllerRef = True
     },
     providerConfigRef = {
       name = _provCfg.metadata.name,
@@ -348,7 +342,6 @@ _items += [ec2v1beta1.Route{
 }]
 
 # Security group configuration
-
 _items += [ec2v1beta1.SecurityGroup{
   metadata = {
     labels = {
@@ -365,7 +358,7 @@ _items += [ec2v1beta1.SecurityGroup{
   spec = {
     forProvider = {
       region = _oxrProvRegion,
-      vpcIdSelector .matchControllerRef = True
+      vpcIdSelector.matchControllerRef = True
     },
     providerConfigRef = {
       name = _provCfg.metadata.name,
@@ -522,9 +515,9 @@ secGrpRulesInboundUdp = [
     }
   } for port in _udpPortsToUse
 ]
-
 _items += secGrpRulesInboundUdp
 
+# KeyPair configuration
 _items += [ec2v1beta1.KeyPair{
   metadata = {
     labels = {
@@ -540,14 +533,15 @@ _items += [ec2v1beta1.KeyPair{
   spec = {
     forProvider = {
       region = _oxrProvRegion,
-      publicKey = _publicKey,
+      publicKey = oxr.spec?.publicKey,
     },
     providerConfigRef = {
       name = _provCfg.metadata.name,
     },
   }
-}]
+}] if oxr.spec?.publicKey else []
 
+# Elastic IP configuration
 _items += [
   ec2v1beta1.EIP {
     metadata = {
@@ -581,39 +575,17 @@ _items += [
   }
 ]
 
-_images = yaml.decode(_provSettings?.data?["images.yaml"]) if _provSettings?.data?["images.yaml"] else Undefined
-assert _images is not Undefined, "Images must be provided in the provider settings"
-_amis = [z.name for z in _images?.zones if _images and z.zone == _oxrProvZone]
-assert len(_amis) == 1, "AMI for the specified zone must be provided in the images resource"
-_ami = _amis[0]
-assert _ami, "AMI must be specified in the provider settings"
+_ami = oxr.spec.gateway?.image 
+assert _ami, "Gateway image must be specified in the XSkyCluster spec"
 
-_itypesYaml = yaml.decode(_provSettings?.data?["instance-types.yaml"]) if _provSettings?.data?["instance-types.yaml"] else Undefined
-assert _itypesYaml is not Undefined, "Instance types must be provided in the provider settings"
-_itypesZone = [fz.flavors for fz in _itypesYaml if fz.zone == _oxrProvZone]
-assert len(_itypesZone) == 1, \
-  "Instance types for the specified zone must be provided in the instance types resource and exactly one flavor must be specified per zone"
-_itypes = [{
-  ram = fl.ram
-  cpu = fl.cpu
-  name = fl.name
-  nameLabel = fl.nameLabel
-} for fl in _itypesZone[0]]
-
-_oxrGwFlavor = oxr.spec?.gateway?.flavor 
-_itLabel = _oxrGwFlavor if (_oxrGwFlavor and _oxrGwFlavor in [_i.nameLabel for _i in _itypes]) else Undefined
-defaultFlavors = ["2vCPU-4GB", "2vCPU-8GB", "4vCPU-4GB"]
-_itLabel = _itLabel or defaultFlavors[0]
-
-_it = [d.name for d in _itypes if d.nameLabel == _itLabel]?[0]
-assert _it, "Gateway flavor must be specified in the XSkyCluster spec or default flavors must be available"
+_it = oxr.spec.gateway?.flavor
+assert _it, "Gateway flavor must be specified in the XSkyCluster spec"
 
 _keyPairId = ocds?.keypair?.Resource?.status?.atProvider?.keyPairId 
 _keypairName = ocds?.keypair?.Resource?.status?.atProvider?.id 
 
-_userData = _initScript?.data?["cloud-init"] 
-assert _userData, "Cloud-init script must be provided in the init script map"
-_userData = _userData.replace("__SUBNETCIDR__", _vpcCidr)
+_userData = oxr.spec.gateway?.userData 
+_userData = _userData.replace("__SUBNETCIDR__", _vpcCidr) if _userData else Undefined
 
 _items += [
   ec2v1beta1.Instance{
@@ -636,7 +608,7 @@ _items += [
         region = _oxrProvRegion,
         keyName = _keypairName,
         rootBlockDevice = [{
-          volumeSize = oxr.spec?.gateway?.volumeSize or 8,
+          volumeSize = oxr.spec?.gateway?.volumeSize or 20,
           volumeType = oxr.spec?.gateway?.volumeType or "gp2",
         }]
         networkInterface = [
