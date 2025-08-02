@@ -8,6 +8,56 @@ spec:
     kind: XProviderInstance
   mode: Pipeline
   pipeline:
+    - step: pull-extra-resources
+      functionRef:
+        name: function-extra-resources
+      input:
+        apiVersion: extra-resources.fn.crossplane.io/v1beta1
+        kind: Input
+        spec:
+          extraResources:
+            - kind: XSetup
+              into: SkySetups
+              apiVersion: skycluster.io/v1alpha1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+            - kind: ConfigMap
+              into: ProviderSettings
+              apiVersion: v1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/provider-platform
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.platform
+                  - key: skycluster.io/provider-region
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.region
+                  - key: skycluster.io/provider-zone
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.zones.primary
+            - kind: ConfigMap
+              into: InitScripts
+              apiVersion: v1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 100
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+                  - key: skycluster.io/script-type
+                    type: Value
+                    value: cloud-init
     - step: resources
       functionRef:
         name: function-kcl
