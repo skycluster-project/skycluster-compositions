@@ -1,9 +1,9 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
-  name: xinstances.aws.skycluster.io
+  name: xinstances.skycluster.io
 spec:
-  group: aws.skycluster.io
+  group: skycluster.io
   names:
     categories:
     - crossplane

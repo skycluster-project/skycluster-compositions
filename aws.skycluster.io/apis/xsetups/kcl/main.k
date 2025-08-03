@@ -637,6 +637,8 @@ _keyPairId = ocds?.keypair?.Resource?.status?.atProvider?.keyPairId
 _keypairName = ocds?.keypair?.Resource?.status?.atProvider?.id 
 _vpcId = ocds?.vpc?.Resource?.status?.atProvider?.id
 _ocdsSubnets = [v.Resource for k, v in ocds if k.find("subnet") != -1 and v.Resource]
+_publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp
+_privateIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.privateIp
 
 dxr = {
   **option("params").dxr,
@@ -656,9 +658,9 @@ dxr = {
     } for _, v in _ocdsSubnets if v
   ]
   status.gateway = {
-    publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp 
-    privateIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.privateIp 
-  }
+    publicIp = _publicIp
+    privateIp = _privateIp
+  } if _publicIp or _privateIp else {},
 }
 
 # Collect all resources into a list for output
