@@ -32,9 +32,22 @@ spec:
             properties:
               apiServer:
                 type: string
+              ca:
+                properties:
+                  certificate:
+                    type: string
+                  secretName:
+                    type: string
+                  secretNamespace:
+                    type: string
+                type: object
               headscale:
                 properties:
                   connectionSecretName:
+                    type: string
+                  loginUrl:
+                    type: string
+                  token:
                     type: string
                 type: object
               keypair:

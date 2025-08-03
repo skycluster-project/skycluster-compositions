@@ -16,6 +16,10 @@ assert ctx is not Undefined, "Context must be provided in the params"
 _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
 
+_caSecret = _extraRes["SecretCAs"]?[0]
+_ca = _caSecret.data?["ca.crt"]
+assert _ca is not Undefined, "CA certificate must be provided in the extra resources"
+
 _keypair = _extraRes["Secrets"]?[0]
 assert _keypair is not Undefined, "Default keypair must be provided in the extra resources"
 
@@ -194,6 +198,7 @@ _items += [
 
 
 # Headscale-server Deployment
+_headscaleSecretName = "headscale-connection-secret"
 _items += [
   # Init and main headscale-server containers
   k8sv1alpha2.Object{
@@ -280,6 +285,10 @@ _items += [
                   {
                     name = "HEADSCALE_SERVER_URL"
                     value = "https://{}:8080".format(_apiServerForHeadscale)
+                  },
+                  {
+                    name = "HEADSCALE_SECRET_NAME"
+                    value = _headscaleSecretName
                   },
                 ]
                 volumeMounts = [{
@@ -368,6 +377,34 @@ _items += [
 ] if helper._ready(ocds?["headscaleCertGenPod"]) or ocds?["headscaleServerDeployment"] else []
 
 
+# We need to observe the secret for headscale connection
+_items += [
+  k8sv1alpha2.Object{
+    metadata = {
+      annotations = {
+        **helper._set_resource_name("headscaleToken")
+      }
+    }
+    spec = {
+      forProvider.manifest = {
+        apiVersion = "v1"
+        kind = "Secret"
+        metadata = { 
+          name = _headscaleSecretName,
+          namespace = "skycluster-system",
+        }
+      }
+      managementPolicies = ["Observe"]
+      providerConfigRef = {
+        name = _k8sProvCfgName
+      }
+    }
+  }
+] if helper._ready(ocds?["headscaleServerDeployment"]) or ocds?["headscaleToken"] else []
+_hsTokenEnc = ocds?["headscaleToken"]?.Resource?.status?.atProvider?.manifest?.data?["preauth.json"]
+_hsTokenDec = base64.decode(_hsTokenEnc) if _hsTokenEnc else Undefined
+_hsToken = json.decode(_hsTokenDec) if _hsTokenDec else Undefined
+
 dxr = [{
   **option("params").dxr,
   status.apiServer = oxr?.spec?.apiServer or Undefined,
@@ -381,11 +418,20 @@ dxr = [{
     } if _k8sProvCfgName else Undefined
   } if _helmProvCfgName or _k8sProvCfgName else Undefined
   status.submariner.connectionSecretName = ocds?["xoverlay"]?.Resource?.status?.connectionSecretName or Undefined
-  status.headscale.connectionSecretName = "headscale-connection-secret",
+  status.headscale = {
+    connectionSecretName = _headscaleSecretName,
+    loginUrl = "https://{}:8080".format(_apiServerForHeadscale) if _apiServerForHeadscale else Undefined,
+    token = _hsToken?["key"] 
+  }
   status.keypair = {
     secretName = _keypair.metadata?.name or Undefined,
     secretNamespace = _keypair.metadata?.namespace or "skycluster-system",
     publicKey = json.decode(base64.decode(_keypair.data?.config))?.publicKey or Undefined
+  }
+  status.ca = {
+    secretName = _caSecret.metadata?.name,
+    secretNamespace = _caSecret.metadata?.namespace,
+    certificate = _ca
   }
 }] 
 
