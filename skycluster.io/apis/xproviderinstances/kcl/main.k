@@ -1,4 +1,6 @@
 import helper.v1alpha1.main as helper
+import helper.v1alpha1.aws as helper_aws
+
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -39,6 +41,20 @@ assert _publicKey, "Public key must be specified in the SkySetup status"
 _scripts = ["ca-certificate", "ip-forwarding", "networkd-dispatcher", "tailscale", "iptables-postrouting"]
 _userData = helper._select_init_scripts(_initScripts, _scripts) or Undefined
 
+# Replace the SkyCluster CA certificate
+_ca = _skySetup.status?.ca.certificate
+assert _ca, "SkySetup CA certificate must be specified in the status"
+_userData = _userData.replace("__CA_CERTIFICATE__", _ca)
+
+# Tailscale configuration
+_loginUrl = _skySetup.status?.headscale?.loginUrl 
+assert _loginUrl, "Headscale login URL must be specified in the SkySetup status"
+_hsToken = _skySetup.status?.headscale?.token
+
+_userData = _userData.replace("__OVERLAY_LOGIN_URL__", _loginUrl)
+_userData = _userData.replace("__OVERLAY_TOKEN__", _hsToken)
+_userData = _userData.replace("__OVERLAY_HOSTNAME__", oxr.metadata?.name)
+
 _items = []
 
 _items += [
@@ -61,8 +77,8 @@ _items += [
       publicKey = _publicKey
       gateway = {
         userData = _userData
-        image = helper._get_image_aws(_provSettings, "ubuntu-24.04", _oxrProvZone) or Undefined
-        flavor = helper._get_instance_type_aws(_provSettings, "2vCPU-4GB", _oxrProvZone)?[0] or Undefined
+        image = helper_aws._get_image_aws(_provSettings, "ubuntu-24.04", _oxrProvZone) or Undefined
+        flavor = helper_aws._get_instance_type_aws(_provSettings, "2vCPU-4GB", _oxrProvZone)?[0] or Undefined
         volumeType = oxr.spec?.gateway?.volumeType or "gp2"
         volumeSize = oxr.spec?.gateway?.volumeSize or 20
       }
@@ -78,5 +94,15 @@ _items += [
   }
 ]
 
+_publicIp = ocds?["xsetup"]?.Resource?.status?.gateway?.publicIp
+_privateIp = ocds?["xsetup"]?.Resource?.status?.gateway?.privateIp
 
-items = _items
+dxr = [{
+  **option("params").dxr,
+  status.gateway = {
+    publicIp = _publicIp
+    privateIp = _privateIp
+  } if _publicIp or _privateIp else Undefined
+}]
+
+items = _items + dxr
