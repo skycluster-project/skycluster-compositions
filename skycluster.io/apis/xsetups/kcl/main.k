@@ -17,7 +17,7 @@ _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
 
 _caSecret = _extraRes["SecretCAs"]?[0]
-_ca = _caSecret.data?["ca.crt"]
+_ca = base64.decode(_caSecret.data?["ca.crt"])
 assert _ca is not Undefined, "CA certificate must be provided in the extra resources"
 
 _keypair = _extraRes["Secrets"]?[0]
