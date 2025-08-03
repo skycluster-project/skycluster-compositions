@@ -1,0 +1,6 @@
+apiVersion: skycluster.io/v1alpha1
+kind: Test
+metadata:
+  name: example
+  namespace: default
+spec: {}

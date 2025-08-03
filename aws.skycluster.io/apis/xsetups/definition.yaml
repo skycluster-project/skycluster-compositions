@@ -23,6 +23,10 @@ spec:
                 properties:
                   flavor:
                     type: string
+                  image:
+                    type: string
+                  userData:
+                    type: string
                   volumeSize:
                     type: number
                   volumeType:
@@ -42,6 +46,8 @@ spec:
                         type: string
                     type: object
                 type: object
+              publicKey:
+                type: string
               subnets:
                 items:
                   properties:
@@ -59,6 +65,13 @@ spec:
           status:
             description: XSetupStatus defines the observed state of XSetup.
             properties:
+              gateway:
+                properties:
+                  privateIp:
+                    type: string
+                  publicIp:
+                    type: string
+                type: object
               keypair:
                 properties:
                   id:
@@ -66,6 +79,8 @@ spec:
                   name:
                     type: string
                 type: object
+              log:
+                type: string
               subnets:
                 items:
                   properties:

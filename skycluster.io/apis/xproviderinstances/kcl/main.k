@@ -44,7 +44,7 @@ _userData = helper._select_init_scripts(_initScripts, _scripts) or Undefined
 # Replace the SkyCluster CA certificate
 _ca = _skySetup.status?.ca.certificate
 assert _ca, "SkySetup CA certificate must be specified in the status"
-_userData = _userData.replace("__CA_CERTIFICATE__", _ca)
+_userData = _userData.replace("__CA_CERTIFICATE_ENCODED__", _ca)
 
 # Tailscale configuration
 _loginUrl = _skySetup.status?.headscale?.loginUrl 

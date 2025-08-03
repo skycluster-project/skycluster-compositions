@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: script-networkd-dispatcher
+  namespace: skycluster-system
+  labels:
+    skycluster.io/managed-by: skycluster
+    skycluster.io/script-type: cloud-init
+    skycluster.io/script-target: provider-init
+    skycluster.io/script-init: networkd-dispatcher
+data:
+  cloud-init: |
+    #cloud-config
+    write_files:
+      - path: /etc/networkd-dispatcher/routable.d/50-tailscale
+        owner: root:root
+        permissions: '0755'
+        content: |
+          #!/bin/sh
+          INTF_NAME=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+          echo "Enabling Segmentation Offload" >> /root/50-tailscale.log
+          # check out
+          # https://tailscale.com/kb/1320/performance-best-practices#linux-optimizations-for-subnet-routers-and-exit-nodes
+          if systemctl is-enabled networkd-dispatcher &>/dev/null; then
+            echo "networkd-dispatcher is enabled." >> /root/50-tailscale.log
+            ethtool -K $INTF_NAME rx-udp-gro-forwarding on rx-gro-list off
+          else
+            echo "networkd-dispatcher is not enabled. Skipping." >> /root/50-tailscale.log
+          fi
+      - path: /etc/networkd-dispatcher/routable.d/51-tailscale
+        owner: root:root
+        permissions: '0755'
+        content: |
+          #!/bin/sh
+          INTF_NAME=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+          echo "Enabling Segmentation Offload" >> /root/50-tailscale.log
+    runcmd:
+      - /etc/networkd-dispatcher/routable.d/50-tailscale
+      - /etc/networkd-dispatcher/routable.d/51-tailscale
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: script-ca-certificate
+  namespace: skycluster-system
+  labels:
+    skycluster.io/managed-by: skycluster
+    skycluster.io/script-type: cloud-init
+    skycluster.io/script-target: provider-init
+    skycluster.io/script-init: ca-certificate
+data:
+  cloud-init: |
+    #cloud-config
+    write_files:
+      - path: /usr/local/share/ca-certificates/ca-certificate.crt
+        owner: root:root
+        permissions: '0755'
+        content: |
+          __CA_CERTIFICATE__
+    runcmd:
+      - update-ca-certificates --fresh

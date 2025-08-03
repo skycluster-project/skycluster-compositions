@@ -709,6 +709,10 @@ spec:
                   cidrBlock = v.status?.atProvider?.cidrBlock
                 } for _, v in _ocdsSubnets if v
               ]
+              status.gateway = {
+                publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp 
+                privateIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.privateIp 
+              }
             }
 
             # Collect all resources into a list for output
