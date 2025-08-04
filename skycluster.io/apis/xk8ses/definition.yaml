@@ -51,6 +51,9 @@ spec:
             type: object
           status:
             description: XK8SStatus defines the observed state of XK8S.
+            properties:
+              log:
+                type: string
             type: object
         required:
         - spec

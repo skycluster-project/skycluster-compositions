@@ -1,19 +1,22 @@
 import helper.v1alpha1.main as helper
+import helper.v1alpha1.aws as helper_aws
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
 # _dxr = option("params").dxr # desired composite resource
 # dcds = option("params").dcds # desired composed resources
 
-# assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
-# assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
-
 ctx = option("params")?.ctx
 assert ctx is not Undefined, "Context must be provided in the params"
 
-# _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
-# assert _extraRes is not Undefined, "Extra resources must be provided in the context"
-# _secrets = _extraRes["Secrets"] or Undefined
+_extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
+assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+
+_provSettings = _extraRes["ProviderSettings"]?[0] 
+assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
+
+_skySetup = _extraRes["SkySetups"][0]
+assert _skySetup is not Undefined, "SkySetup must be provided in the extra resources"
 
 _oxrProvPlatform = oxr.spec?.providerRef?.platform or Undefined
 _oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
@@ -26,6 +29,12 @@ assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone, \
 _svcCidr = oxr.spec?.serviceCidr or Undefined
 _nodesTypes = oxr.spec?.nodeTypes or Undefined
 _principal = oxr.spec?.principal or Undefined
+
+
+
+_nodeTypes = [
+  helper_aws._get_instance_type_aws(_provSettings, _it or "2vCPU-4GB", _oxrProvZone) for _it in _nodesTypes
+] if _nodesTypes else ["t3.medium"]
 
 _items = []
 
@@ -50,7 +59,7 @@ _items += [
       nodeGroups = [
         {
           nodeCount = 1
-          instanceTypes = ["t3.medium"]
+          instanceTypes = _nodeTypes
           publicAccess = True
           autoScaling = {
             enabled = True
@@ -76,7 +85,7 @@ _items += [
       }
     }
   } if _oxrProvPlatform == "aws" else Undefined
-]
+] if oxr.spec?.providerRef?.platform == "aws" else []
 
 
 items = _items
