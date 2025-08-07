@@ -1,11 +1,11 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: xproviderinstances.skycluster.io
+  name: xproviders.skycluster.io
 spec:
   compositeTypeRef:
     apiVersion: skycluster.io/v1alpha1
-    kind: XProviderInstance
+    kind: XProvider
   mode: Pipeline
   pipeline:
     - step: pull-extra-resources
@@ -35,6 +35,9 @@ spec:
                 maxMatch: 1
                 minMatch: 1
                 matchLabels:
+                  - key: skycluster.io/config-type
+                    type: Value
+                    value: provider-settings
                   - key: skycluster.io/provider-platform
                     type: FromCompositeFieldPath
                     valueFromFieldPath: spec.providerRef.platform

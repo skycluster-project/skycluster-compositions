@@ -1,0 +1,28 @@
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xproviders.skycluster.io
+spec:
+  group: skycluster.io
+  names:
+    categories:
+    - crossplane
+    kind: XProvider
+    plural: xproviders
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        description: XProvider is the Schema for the XProvider API.
+        properties:
+          spec:
+            description: XProviderSpec defines the desired state of XProvider.
+            type: object
+          status:
+            description: XProviderStatus defines the observed state of XProvider.
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
