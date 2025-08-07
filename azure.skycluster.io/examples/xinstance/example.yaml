@@ -1,0 +1,5 @@
+apiVersion: azure.skycluster.io/v1alpha1
+kind: XInstance
+metadata:
+  name: example
+spec: {}
