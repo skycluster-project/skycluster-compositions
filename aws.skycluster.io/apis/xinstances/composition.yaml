@@ -137,9 +137,14 @@ spec:
             }] if oxr.spec.securityGroups or ocds?["securityGroup"] else []
 
             _openPorts = [
-              {"fromPort" = r.fromPort, "toPort" = r.toPort} 
+              {"fromPort" = r.fromPort, "toPort" = r.toPort, "protocol" = "tcp"} 
                 for r in oxr.spec.securityGroups?.tcpPorts
             ] if oxr.spec.securityGroups?.tcpPorts else []
+            _openPorts += [
+              {"fromPort" = r.fromPort, "toPort" = r.toPort, "protocol" = "udp"} 
+                for r in oxr.spec.securityGroups?.udpPorts
+            ] if oxr.spec.securityGroups?.udpPorts else []
+
             secGrpRulesInbound = [
               ec2v1beta1.SecurityGroupRule{
                 metadata = {
@@ -268,7 +273,7 @@ spec:
             ] if oxr.spec.publicIp or ocds?["elasticIP"] else []
 
 
-            _keypairName = ocds?["keypair"]?.Resource?.status?.atProvider?.id
+            _keypairName = ocds?["keypair"]?.Resource?.status?.atProvider?.id or Undefined
 
             _items += [
               ec2v1beta1.Instance{
@@ -319,7 +324,7 @@ spec:
             ] if (helper._ready(ocds?["networkInterface"]) and _keypairName) or ocds?["instance"] else []
 
 
-            _keypairId = ocds?["keypair"]?.Resource?.status?.atProvider?.keyPairId 
+            _keypairId = ocds?["keypair"]?.Resource?.status?.atProvider?.keyPairId or Undefined
             _privateIp = ocds?["networkInterface"]?.Resource?.status?.atProvider?.privateIp or Undefined
             _publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp or Undefined
 

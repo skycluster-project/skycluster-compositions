@@ -61,9 +61,14 @@ _items += [ec2v1beta1.SecurityGroup{
 }] if oxr.spec.securityGroups or ocds?["securityGroup"] else []
 
 _openPorts = [
-  {"fromPort" = r.fromPort, "toPort" = r.toPort} 
+  {"fromPort" = r.fromPort, "toPort" = r.toPort, "protocol" = "tcp"} 
     for r in oxr.spec.securityGroups?.tcpPorts
 ] if oxr.spec.securityGroups?.tcpPorts else []
+_openPorts += [
+  {"fromPort" = r.fromPort, "toPort" = r.toPort, "protocol" = "udp"} 
+    for r in oxr.spec.securityGroups?.udpPorts
+] if oxr.spec.securityGroups?.udpPorts else []
+
 secGrpRulesInbound = [
   ec2v1beta1.SecurityGroupRule{
     metadata = {
