@@ -1,5 +1,5 @@
 apiVersion: skycluster.io/v1alpha1
-kind: XK8S
+kind: XKube
 metadata:
   name: example
 spec: 
@@ -18,4 +18,6 @@ spec:
     zones: 
       primary: us-east-1a
       secondary: us-east-1b
+status:
+  log: "log"
 

@@ -6,5 +6,6 @@ spec:
   namespace: skycluster
   publicIp: a.b.c.d:6443
 status:
+  log: "Overlay setup completed successfully."
   namespace: skycluster
   connectionSecretName: connection-secret

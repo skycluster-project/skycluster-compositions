@@ -1,0 +1,37 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XInstance
+metadata:
+  name: example
+spec: 
+  applicationId: example-app
+  flavor: t2.micro
+  image: ubuntu-22.04
+  publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
+  publicIp: true
+  userData: |
+    #!/bin/bash
+    echo "Hello, World!" > /var/tmp/hello.txt
+  securityGroups:
+    tcpPorts:
+      - fromPort: 22
+        toPort: 22
+        protocol: tcp
+    udpPorts:
+      - fromPort: 80
+        toPort: 80
+        protocol: udp
+  rootVolumes:
+    - size: 20Gi
+      type: gp2
+  providerRef:
+    platform: aws
+    region: us-east-1
+    zone: us-east-1a
+status:
+  log: "Instance created successfully."
+  network:
+    publicIp: "203.0.113.0"
+    privateIp: "10.0.0.1"
+  keypair: 
+    name: example-keypair
+    id: kp-12345678

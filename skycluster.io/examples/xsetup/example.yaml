@@ -7,6 +7,7 @@ spec:
   submariner:
     enabled: true
 status:
+  log: "Setup completed successfully."
   namespace: skycluster
   apiServer: a.b.c.d:6443
   providerConfig:
@@ -18,9 +19,17 @@ status:
     connectionSecretName: submariner-config
   headscale:
     connectionSecretName: headscale-config
-  log: "Setup completed successfully."
+    loginUrl: https://headscale.example.com
+    token: headscale-token-12345
   keypair:
     secretName: example-keypair
     secretNamespace: skycluster-system
     publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
+  ca:
+    secretName: skycluster-ca
+    secretNamespace: skycluster-system
+    certificate: |
+      -----BEGIN CERTIFICATE-----
+      MIID...
+      -----END CERTIFICATE-----
   

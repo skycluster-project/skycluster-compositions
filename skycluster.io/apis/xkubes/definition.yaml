@@ -1,23 +1,23 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: CompositeResourceDefinition
 metadata:
-  name: xk8ses.skycluster.io
+  name: xkubes.skycluster.io
 spec:
   group: skycluster.io
   names:
     categories:
     - crossplane
-    kind: XK8S
-    plural: xk8ses
+    kind: XKube
+    plural: xkubes
   versions:
   - name: v1alpha1
     referenceable: true
     schema:
       openAPIV3Schema:
-        description: XK8S is the Schema for the XK8S API.
+        description: XKube is the Schema for the XKube API.
         properties:
           spec:
-            description: XK8SSpec defines the desired state of XK8S.
+            description: XKubeSpec defines the desired state of XKube.
             properties:
               applicationId:
                 type: string
@@ -50,7 +50,7 @@ spec:
                 type: string
             type: object
           status:
-            description: XK8SStatus defines the observed state of XK8S.
+            description: XKubeStatus defines the observed state of XKube.
             properties:
               log:
                 type: string
