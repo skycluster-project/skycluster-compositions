@@ -1,11 +1,11 @@
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
-  name: xk8ses.aws.skycluster.io
+  name: xkubes.aws.skycluster.io
 spec:
   compositeTypeRef:
     apiVersion: aws.skycluster.io/v1alpha1
-    kind: XK8S
+    kind: XKube
   mode: Pipeline
   pipeline:
     - step: extra-resources
@@ -721,3 +721,4 @@ spec:
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready
+
