@@ -2,4 +2,50 @@ apiVersion: gcp.skycluster.io/v1alpha1
 kind: XSetup
 metadata:
   name: example
-spec: {}
+  labels:
+    skycluster.io/managed-by: "skycluster"
+    skycluster.io/provider-platform: gcp
+    skycluster.io/provider-region: us-east1
+    skycluster.io/provider-zone: b
+spec:
+  vpcCidr: 10.20.30.0/16
+  publicKey: |
+    ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEArD1z...
+  gateway:
+    image: TBD
+    flavor: TBD
+    volumeType: gp2
+    volumeSize: 20
+    userData : |
+      #!/bin/bash
+      echo "Initializing gateway..."
+  # Subnet CIDRs should be within the VPC CIDR range
+  subnets:
+    - type: public
+      zone: a
+      cidr: 10.20.30.0/24
+    - type: private
+      zone: b
+      cidr: 10.20.31.0/24
+  providerRef:
+    platform: gcp
+    region: us-east1
+    zones: 
+      primary: a
+      secondary: b
+#     name: example-provider
+status:
+  log: "Setup created successfully."
+  keypair:
+    name: example-keypair
+    id: example-keypair-id
+  vpc:
+    id: vpc-12345678
+    cidrBlock: "10.20.30.0/16"
+  subnets:
+    - type: public
+      id: subnet-12345678
+      cidrBlock: "10.20.30.0/24"
+  gateway:
+    publicIp: "<public-ip>"
+    privateIp: "<private-ip>"

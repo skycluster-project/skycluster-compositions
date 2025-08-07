@@ -18,9 +18,71 @@ spec:
         properties:
           spec:
             description: XProviderSpec defines the desired state of XProvider.
+            properties:
+              applicationId:
+                type: string
+              gateway:
+                properties:
+                  flavor:
+                    type: string
+                  volumeSize:
+                    type: number
+                  volumeType:
+                    type: string
+                type: object
+              providerRef:
+                properties:
+                  platform:
+                    type: string
+                  region:
+                    type: string
+                  zones:
+                    properties:
+                      primary:
+                        type: string
+                      secondary:
+                        type: string
+                    type: object
+                type: object
+              subnets:
+                items:
+                  properties:
+                    cidr:
+                      type: string
+                    type:
+                      type: string
+                    zone:
+                      type: string
+                  type: object
+                type: array
+              vpcCidr:
+                type: string
             type: object
           status:
             description: XProviderStatus defines the observed state of XProvider.
+            properties:
+              gateway:
+                properties:
+                  privateIp:
+                    type: string
+                  publicIp:
+                    type: string
+                type: object
+              log:
+                type: string
+              subnets:
+                items:
+                  properties:
+                    cidr:
+                      type: string
+                    type:
+                      type: string
+                    zone:
+                      type: string
+                  type: object
+                type: array
+              vpcCidr:
+                type: string
             type: object
         required:
         - spec

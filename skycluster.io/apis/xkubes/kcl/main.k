@@ -41,7 +41,7 @@ _items = []
 _items += [
   {
     apiVersion = "aws.skycluster.io/v1alpha1"
-    kind = "XK8S"
+    kind = "XKube"
     metadata = {
       labels = {
         **oxr.metadata?.labels,

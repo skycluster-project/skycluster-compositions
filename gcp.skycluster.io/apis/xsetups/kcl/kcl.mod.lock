@@ -13,15 +13,9 @@
     reg = "ghcr.io"
     repo = "kcl-lang/k8s"
     oci_tag = "1.32.4"
-  [dependencies.provider-aws]
-    name = "provider-aws"
-    full_name = "provider-aws_0.0.1"
-    version = "0.0.1"
-    url = "https://github.com/skycluster-project/kcl-modules"
-    commit = "a608168"
-  [dependencies.provider-helm]
-    name = "provider-helm"
-    full_name = "provider-helm_0.0.1"
+  [dependencies.provider-gcp]
+    name = "provider-gcp"
+    full_name = "provider-gcp_0.0.1"
     version = "0.0.1"
     url = "https://github.com/skycluster-project/kcl-modules"
     commit = "a608168"
