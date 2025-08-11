@@ -1,5 +1,4 @@
 import helper.v1alpha1.main as helper
-import helper.v1alpha1.aws as helper_aws
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -31,10 +30,9 @@ _nodesTypes = oxr.spec?.nodeTypes or Undefined
 _principal = oxr.spec?.principal or Undefined
 
 
-
-_nodeTypes = [
-  helper_aws._get_instance_type_aws(_provSettings, _it or "2vCPU-4GB", _oxrProvZone) for _it in _nodesTypes
-] if _nodesTypes else ["t3.medium"]
+_a = [helper._get_instance_type(_provSettings, _it or "2vCPU-4GB", _oxrProvZone) for _it in _nodesTypes] if _nodesTypes else []
+# convert lists in _a into a single list
+_nodeTypes = [item for sublist in _a for item in sublist]
 
 _items = []
 
@@ -86,6 +84,55 @@ _items += [
     }
   } if _oxrProvPlatform == "aws" else Undefined
 ] if oxr.spec?.providerRef?.platform == "aws" else []
+
+_items += [
+  {
+    apiVersion = "gcp.skycluster.io/v1alpha1"
+    kind = "XKube"
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("xk8s")
+      }
+    }
+    spec = {
+      applicationId = oxr.spec?.applicationId or Undefined
+      serviceCidr = oxr.spec?.serviceCidr or Undefined
+      # principalArn = oxr.spec?.principal?.id or Undefined
+      nodeGroups = [
+        {
+          nodeCount = 1
+          instanceType = _nodeTypes?[0] # For GCP we use single instance type
+          publicAccess = True
+          autoScaling = {
+            enabled = True
+            minSize = 1
+            maxSize = 1
+          }
+        },
+        # {
+        #   nodeCount = 1
+        #   instanceTypes = _nodesTypes 
+        #   publicAccess = False
+        #   autoScaling = {
+        #     enabled = True
+        #     minSize = 1
+        #     maxSize = 3
+        #   }
+        # } if _nodesTypes else {}
+      ]
+      providerRef = {
+        platform = _oxrProvPlatform
+        region = _oxrProvRegion
+        zones = _oxrProvZones
+      }
+    }
+  } if _oxrProvPlatform == "gcp" else Undefined
+] if oxr.spec?.providerRef?.platform == "gcp" else []
 
 
 items = _items

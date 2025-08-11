@@ -18,9 +18,49 @@ spec:
         properties:
           spec:
             description: XKubeSpec defines the desired state of XKube.
+            properties:
+              applicationId:
+                type: string
+              nodeGroups:
+                items:
+                  properties:
+                    autoScaling:
+                      properties:
+                        enabled:
+                          type: boolean
+                        maxSize:
+                          type: number
+                        minSize:
+                          type: number
+                      type: object
+                    instanceType:
+                      type: string
+                    nodeCount:
+                      type: number
+                    publicAccess:
+                      type: boolean
+                  type: object
+                type: array
+              providerRef:
+                properties:
+                  platform:
+                    type: string
+                  region:
+                    type: string
+                  zones:
+                    properties:
+                      primary:
+                        type: string
+                    type: object
+                type: object
+              serviceCidr:
+                type: string
             type: object
           status:
             description: XKubeStatus defines the observed state of XKube.
+            properties:
+              log:
+                type: string
             type: object
         required:
         - spec

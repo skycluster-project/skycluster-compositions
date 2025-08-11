@@ -26,7 +26,7 @@ assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra 
 
 _oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
-_oxrProvZone = oxr.spec.providerRef.zone
+_oxrProvZone = oxr.spec.providerRef.zones.primary
 _oxrProvPlatform = oxr.spec.providerRef.platform
 _oxrAppId = oxr.spec.providerRef.applicationId or Undefined
 
