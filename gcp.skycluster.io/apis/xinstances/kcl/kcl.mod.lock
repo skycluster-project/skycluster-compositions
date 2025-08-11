@@ -19,6 +19,12 @@
     version = "0.0.1"
     url = "https://github.com/skycluster-project/kcl-modules"
     commit = "5f06aa9"
+  [dependencies.provider-helm]
+    name = "provider-helm"
+    full_name = "provider-helm_0.0.1"
+    version = "0.0.1"
+    url = "https://github.com/skycluster-project/kcl-modules"
+    commit = "5f06aa9"
   [dependencies.provider-kubernetes]
     name = "provider-kubernetes"
     full_name = "provider-kubernetes_0.0.1"

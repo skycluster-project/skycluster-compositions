@@ -8,6 +8,76 @@ spec:
     kind: XKube
   mode: Pipeline
   pipeline:
+  - step: extra-resources
+    functionRef:
+      name: function-extra-resources
+    input:
+      apiVersion: extra-resources.fn.crossplane.io/v1beta1
+      kind: Input
+      spec:
+        extraResources:
+          - kind: ProviderConfig
+            into: ProviderConfigs
+            apiVersion: gcp.upbound.io/v1beta1
+            type: Selector
+            selector:
+              maxMatch: 1
+              minMatch: 1
+              matchLabels:
+                - key: skycluster.io/managed-by
+                  type: Value
+                  value: skycluster
+          - kind: XSetup
+            into: SkySetups
+            apiVersion: skycluster.io/v1alpha1
+            type: Selector
+            selector:
+              maxMatch: 1
+              minMatch: 1
+              matchLabels:
+                - key: skycluster.io/managed-by
+                  type: Value
+                  value: skycluster
+          - kind: XSetup
+            into: XSetup
+            apiVersion: aws.skycluster.io/v1alpha1
+            type: Selector
+            selector:
+              maxMatch: 1
+              minMatch: 1
+              matchLabels:
+                - key: skycluster.io/managed-by
+                  type: Value
+                  value: skycluster
+                - key: skycluster.io/provider-platform
+                  type: Value
+                  value: gcp
+                - key: skycluster.io/provider-region
+                  type: FromCompositeFieldPath
+                  valueFromFieldPath: spec.providerRef.region
+                - key: skycluster.io/provider-zone
+                  type: FromCompositeFieldPath
+                  valueFromFieldPath: spec.providerRef.zone
+                - key: skycluster.io/application-id
+                  type: FromCompositeFieldPath
+                  valueFromFieldPath: spec.applicationId
+  - step: resources
+    functionRef:
+      name: function-kcl
+    input:
+      apiVersion: krm.kcl.dev/v1alpha1
+      kind: KCLInput
+      metadata:
+        name: basic
+      spec:
+        dependencies: |
+          provider-kubernetes = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
+          provider-helm = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
+          provider-gcp = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
+          helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
+        source: |2-
+
+          import helper.v1alpha1.main as helper
   - functionRef:
       name: crossplane-contrib-function-auto-ready
     step: crossplane-contrib-function-auto-ready
