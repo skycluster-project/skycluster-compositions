@@ -4,7 +4,7 @@
     full_name = "helper_0.0.1"
     version = "0.0.1"
     url = "https://github.com/skycluster-project/kcl-modules"
-    commit = "a608168"
+    commit = "eb720be"
   [dependencies.k8s]
     name = "k8s"
     full_name = "k8s_1.32.4"
@@ -18,10 +18,10 @@
     full_name = "provider-aws_0.0.1"
     version = "0.0.1"
     url = "https://github.com/skycluster-project/kcl-modules"
-    commit = "a608168"
+    commit = "eb720be"
   [dependencies.provider-kubernetes]
     name = "provider-kubernetes"
     full_name = "provider-kubernetes_0.0.1"
     version = "0.0.1"
     url = "https://github.com/skycluster-project/kcl-modules"
-    commit = "a608168"
+    commit = "eb720be"
