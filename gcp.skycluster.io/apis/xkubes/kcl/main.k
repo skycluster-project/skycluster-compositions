@@ -246,6 +246,9 @@ _items += [
               }
             ]
             serviceAccount = _svcAccEmail,
+            metadata = {
+              "disable-legacy-endpoints" = "true",
+            }
           }
         ]
       },
@@ -295,73 +298,8 @@ _items += [{
   } if ocds?["gkecluster"] else {}
 }]
 
-_k8sProvCfgName = ocds?["gkeClusterConfig"]?.Resource?.metadata?.name 
-_helmProvCfgName = ocds?["gkeClusterConfigHelm"]?.Resource?.metadata?.name 
-
-_items += [
-  k8sv1a1.ProviderConfig {
-    metadata = {
-      labels = {"skycluster.io/managed-by": "skycluster"}
-      annotations = {
-          **oxr.metadata?.annotations,
-          **helper._set_resource_name("gkeClusterConfig"),
-          "krm.kcl.dev/ready": "True"
-      }
-    }
-    spec = {
-      credentials = {
-        source = "Secret"
-        secretRef = {
-          namespace = _ns
-          name = "{}-gkecluster".format(oxr.metadata.uid)
-          key = "kubeconfig"
-        }
-      }
-      identity = {
-        source = "Secret"
-        type = "GoogleApplicationCredentials"
-        secretRef = {
-          namespace = _ns
-          name = "{}-sakey".format(oxr.metadata.uid)
-          key = "private_key"
-        }
-      }
-    }
-  }
-] if helper._ready(ocds?["gkecluster"]) or ocds?["gkeClusterConfig"] else []
-
-_items += [
-    helmv1b1.ProviderConfig {
-    metadata = {
-      labels = {"skycluster.io/managed-by": "skycluster"}
-      annotations = {
-          **oxr.metadata?.annotations,
-          **helper._set_resource_name("gkeClusterConfigHelm"),
-          "krm.kcl.dev/ready": "True"
-      }
-    }
-    spec = {
-      credentials = {
-        source: "Secret"
-        secretRef = {
-          namespace = _ns
-          name = "{}-gkecluster".format(oxr.metadata.uid)
-          key = "kubeconfig"
-        }
-      }
-      identity = {
-        source = "Secret"
-        type = "GoogleApplicationCredentials"
-        secretRef = {
-          namespace = _ns
-          name = "{}-sakey".format(oxr.metadata.uid)
-          key = "private_key"
-        }
-      }
-    }
-  }
-] if helper._ready(ocds?["gkecluster"]) or ocds?["gkeClusterConfigHelm"] else []
-
+_k8sProvCfgName = ocds?["providerConfigKubernetes"]?.Resource?.metadata?.name 
+_helmProvCfgName = ocds?["providerConfigHelm"]?.Resource?.metadata?.name 
 
 _items += [
   k8sv1a1.Object{
@@ -370,6 +308,7 @@ _items += [
         **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
+        "app.kubernetes.io/dummy" = "skycluster",
       }
       annotations = {
         **oxr.metadata?.annotations,
@@ -386,7 +325,7 @@ _items += [
           kind = "ConfigMap"
           metadata = {
             name = "{}-workload-identity-settings".format(_oxrName)
-            namespace = _ns
+            namespace = "default"
           }
           data = {
             gkeProject = _project
@@ -399,7 +338,6 @@ _items += [
     }
   } 
 ] if (helper._ready(ocds?["gkecluster"]) and _k8sProvCfgName) or ocds?["workloadIdentitySettings"] else []
-
 
 
 dxr = {

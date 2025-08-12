@@ -11,9 +11,11 @@ spec:
     - type: public
       cidr: 10.10.0.0/16
       zone: us-west-2a
+      default: false # only applicable for GCP
     - type: private
       cidr: 10.10.1.0/24
       zone: us-west-2b
+      default: true # only applicable for GCP
   gateway:
     flavor: 2vCPU-4GB
     volumeType: gp2

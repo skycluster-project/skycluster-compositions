@@ -96,7 +96,7 @@ _items += [gcpv1beta1.Address{
       addressType = "INTERNAL"
       subnetworkSelector.matchLabels = {
         **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-        "skycluster.io/public-subnet" = "false" 
+        "skycluster.io/default-subnet" = "true"
       }
     },
     providerConfigRef = {
@@ -156,13 +156,20 @@ _items += [gcpv1beta2.Instance{
   spec = {
     forProvider = {
       machineType = oxr.spec.flavor
-      zone = "{}-{}".format(_oxrProvRegion, _oxrProvZone)
+      zone = _oxrProvZone, 
+      bootDisk = {
+        initializeParams = {
+          image = oxr?.spec?.image 
+          size = oxr.spec.gateway?.volumeSize or 20,
+          type = oxr.spec.gateway?.volumeType or "pd-standard",
+        },
+      }, 
       networkInterface = [
         {
           networkIp = _privateAddress
           subnetworkSelector.matchLabels = {
             **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-            "skycluster.io/public-subnet" = "false"
+            "skycluster.io/default-subnet" = "true"
           }
           accessConfig = [{
             natIp = _publicAddress 
@@ -180,14 +187,14 @@ _items += [gcpv1beta2.Instance{
       name = _provCfg.metadata.name,
     },
   }
-}] if oxr.spec.flavor else []
+}] if _privateAddress and oxr.spec.flavor else []
 
 
 dxr = {
   **option("params").dxr,
   status.network = {
-    privateIp = _privateAddress
-    publicIp = _publicAddress
+    privateIp = _privateAddress or Undefined
+    publicIp = _publicAddress or Undefined
   } if _privateAddress or _publicAddress else Undefined,
 }
 

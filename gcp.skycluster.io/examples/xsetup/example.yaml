@@ -8,7 +8,7 @@ metadata:
     skycluster.io/provider-region: us-east1
     skycluster.io/provider-zone: b
 spec:
-  vpcCidr: 10.20.30.0/16
+  vpcCidr: 10.20.0.0/16
   publicKey: |
     ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEArD1z...
   gateway:
@@ -24,9 +24,12 @@ spec:
     - type: public
       zone: a
       cidr: 10.20.30.0/24
-    - type: private
-      zone: b
-      cidr: 10.20.31.0/24
+      default: true # only applicatable for GCP
+      # if default is true, the first half of the VPC CIDR will be used for pods, 
+      # the second half for services is divided into two quarters
+      # and the third quarter will be used for services.
+      # the fourth quarter will be used for other resources in the subnet.
+      # Take a look at the composition for more details.
   providerRef:
     platform: gcp
     region: us-east1

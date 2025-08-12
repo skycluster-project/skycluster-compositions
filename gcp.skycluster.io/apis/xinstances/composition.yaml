@@ -40,7 +40,7 @@ spec:
                     value: skycluster
             - kind: XSetup
               into: XSetup
-              apiVersion: aws.skycluster.io/v1alpha1
+              apiVersion: gcp.skycluster.io/v1alpha1
               type: Selector
               selector:
                 maxMatch: 1
@@ -172,7 +172,7 @@ spec:
                   addressType = "INTERNAL"
                   subnetworkSelector.matchLabels = {
                     **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-                    "skycluster.io/public-subnet" = "false" 
+                    "skycluster.io/default-subnet" = "true"
                   }
                 },
                 providerConfigRef = {
@@ -232,13 +232,20 @@ spec:
               spec = {
                 forProvider = {
                   machineType = oxr.spec.flavor
-                  zone = "{}-{}".format(_oxrProvRegion, _oxrProvZone)
+                  zone = _oxrProvZone
+                  bootDisk = {
+                    initializeParams = {
+                      image = oxr?.spec?.image 
+                      size = oxr.spec.gateway?.volumeSize or 20,
+                      type = oxr.spec.gateway?.volumeType or "pd-standard",
+                    },
+                  }, 
                   networkInterface = [
                     {
                       networkIp = _privateAddress
                       subnetworkSelector.matchLabels = {
                         **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-                        "skycluster.io/public-subnet" = "false"
+                        "skycluster.io/default-subnet" = "true"
                       }
                       accessConfig = [{
                         natIp = _publicAddress 
@@ -256,14 +263,14 @@ spec:
                   name = _provCfg.metadata.name,
                 },
               }
-            }] if oxr.spec.flavor else []
+            }] if _privateAddress and oxr.spec.flavor else []
 
 
             dxr = {
               **option("params").dxr,
               status.network = {
-                privateIp = _privateAddress
-                publicIp = _publicAddress
+                privateIp = _privateAddress or Undefined
+                publicIp = _publicAddress or Undefined
               } if _privateAddress or _publicAddress else Undefined,
             }
 

@@ -1,6 +1,5 @@
 import yaml
 import helper.v1alpha1.main as helper
-import helper.v1alpha1.aws as helper_aws
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -33,8 +32,8 @@ assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone and _appId, \
 _publicKey = oxr.spec?.publicKey or _skySetup.status?.keypair?.publicKey
 assert _publicKey, "Public key must be specified in the SkySetup status"
 
-_ami = helper_aws._get_image_aws(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)
-_it = helper_aws._get_instance_type_aws(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0]
+_ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name
+_it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0]
 
 _ud = oxr.spec?.userData or Undefined
 _scripts = ["routing-gateway", "ip-forwarding"]
@@ -77,6 +76,43 @@ _items = [
     }
   }
 ] if oxr.spec?.providerRef?.platform == "aws" else []
+
+_items = [
+  {
+    apiVersion = "gcp.skycluster.io/v1alpha1"
+    kind = "XInstance"
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("xinstance")
+      }
+    }
+    spec = {
+      applicationId = _appId
+      flavor = _it
+      image = _ami
+      publicKey = _publicKey
+      publicIp = oxr.spec?.publicIp or False
+      userData = _userData
+      securityGroups = oxr.spec?.securityGroups
+      rootVolumes = oxr.spec?.rootVolumes or [
+        {
+          size = "20"
+          type = "pd-standard" 
+        }
+      ]
+      providerRef={
+        platform= _oxrProvPlatform
+        region= _oxrProvRegion
+        zone = _oxrProvZone
+      }
+    }
+  }
+] if oxr.spec?.providerRef?.platform == "gcp" else []
 
 
 _publicIp = ocds?["xinstance"]?.Resource?.status?.network?.publicIp or Undefined

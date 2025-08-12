@@ -6,7 +6,7 @@ spec:
   applicationId: example-app
   serviceCidr: 10.0.0.0/24
   nodeTypes:
-    - "t3.medium"
+    - "2vCPU-4GB"
   principal:
     type: user | role | serviceAccount | servicePrincipal | managedIdentity
     id: string # ARN (AWS) | member (GCP) | principalId (Azure)
