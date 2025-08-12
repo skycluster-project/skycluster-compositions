@@ -53,6 +53,8 @@ spec:
                   properties:
                     cidr:
                       type: string
+                    default:
+                      type: boolean
                     type:
                       type: string
                     zone:

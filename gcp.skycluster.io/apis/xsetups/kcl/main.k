@@ -1,6 +1,3 @@
-import json
-import base64
-import yaml
 import helper.v1alpha1.main as helper
 import provider_gcp.compute.v1beta1 as gcpv1beta1
 import provider_gcp.compute.v1beta2 as gcpv1beta2
@@ -69,20 +66,42 @@ _items += [gcpv1beta1.Network{
   }
 }]
 
-
 _subnets = []
 _subnets +=  [{
-    "type" = sub.type,
-    "zone" = sub.zone,
-    "cidrBlock" = sub.cidr,
+  "type" = sub.type, # not relevant for GCP
+  "zone" = sub.zone,
+  if sub.default:
+    "default" = True
+    # first half of the VPC CIDR
+    "podCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 1, 0) 
+    # second half of the VPC CIDR
+    "primaryCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 2, 2) 
+    # third quarter of the VPC CIDR
+    "serviceCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 2, 3) 
+  else:
+    "default" = False
 } for i, sub in oxr.spec.subnets]
 
+# CIDR_subnet(x, 1, 0)
+# -- Add 1 bit → split into 2 halves.
+# -- Pick slice #0 → the first half of x.
+
+# CIDR_subnet(x, 2, 2)
+# -- Add 2 bits → split into 4 quarters.
+# -- Pick slice #2 → the third quarter of x.
+
+# CIDR_subnet(x, 2, 3)
+# -- Same four-quarter view.
+# -- Pick slice #3 → the fourth quarter (last chunk).
+
+_vpcCidr = oxr.spec.vpcCidr
 
 _items += [gcpv1beta1.Subnetwork{
   metadata = {
     labels = {
       **oxr.metadata?.labels,
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+      if s.default: "skycluster.io/default-subnet" = "true"
     }
     annotations = {
       **oxr.metadata?.annotations,
@@ -93,7 +112,20 @@ _items += [gcpv1beta1.Subnetwork{
   spec = {
     forProvider = {
       region = _oxrProvRegion,
-      ipCidrRange = s.cidrBlock,
+      if s.default:
+        ipCidrRange = s.primaryCidrBlock,
+        secondaryIpRange = [
+          {
+            ipCidrRange = s.podCidrBlock
+            rangeName = "pods"
+          },
+          {
+            ipCidrRange = s.serviceCidrBlock
+            rangeName = "services"
+          }
+        ]
+      else:
+        ipCidrRange = s.cidrBlock,
       networkSelector.matchControllerRef = True,
       privateIpGoogleAccess = True,
     },

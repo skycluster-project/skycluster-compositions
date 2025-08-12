@@ -23,12 +23,18 @@ assert _skySetup is not Undefined, "SkySetup must be provided in the extra resou
 _provCfg = _extraRes["ProviderConfigs"]?[0]
 assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra resources"
 
+_xSetup = _extraRes["XSetup"][0]
+assert _xSetup is not Undefined, "XSetup must be provided in the extra resources"
+
 
 _oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
 _oxrProvZone = oxr.spec.providerRef.zones.primary
 _oxrProvPlatform = oxr.spec.providerRef.platform
 _oxrAppId = oxr.spec.providerRef.applicationId or Undefined
+
+# _subnetName = [s.id for s in _xSetup.status.subnets if s.type == "public"]?[0]
+# _subnetName = re.replace(_subnetName, r'^.*/', "") if _subnetName else Undefined
 
 _ns = "skycluster-system"
 
@@ -155,13 +161,13 @@ _items += [
         ]
         loggingService = "logging.googleapis.com/kubernetes",
         monitoringService = "monitoring.googleapis.com/kubernetes",
-        location = _oxrProvRegion,
+        location = _oxrProvZone,
         networkSelector.matchLabels = {
           **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
         }
         subnetworkSelector.matchLabels = {
           **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
-          "skycluster.io/public-subnet" = "true"
+          "skycluster.io/default-subnet" = "true"
         }
         nodeConfig = [
           {
@@ -206,7 +212,7 @@ _items += [
     },
     spec = {
       forProvider = {
-        location = _oxrProvRegion,
+        location = _oxrProvZone,
         autoscaling = [
           {
             minNodeCount = ng.autoscaling?.minSize or 1,
@@ -224,7 +230,8 @@ _items += [
         maxPodsPerNode = 55
         nodeConfig = [
           {
-            diskSizeGb = 10,
+            diskSizeGb = 20,
+            diskType = "pd-standard",
             imageType = "COS_CONTAINERD",
             machineType = ng.instanceType or "e2-medium",
             metadata.disableLegacyEndpoints = "true",
