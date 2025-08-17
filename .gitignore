@@ -5,3 +5,7 @@ dev/examples
 **/_output
 **/.venv
 **/.up
+
+
+aws.skycluster.io/apis/xkarpenters
+aws.skycluster.io/examples/xkarpenter

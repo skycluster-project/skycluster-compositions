@@ -1,0 +1,5 @@
+apiVersion: os.skycluster.io/v1alpha1
+kind: XKube
+metadata:
+  name: example
+spec: {}
