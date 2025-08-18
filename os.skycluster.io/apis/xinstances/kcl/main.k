@@ -31,11 +31,6 @@ _oxrAnnotations = oxr.metadata.annotations
 assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
   "Provider region, primary zone, platform must be specified"
 
-_defaults = {
-  deletionPolicy = "Delete"
-  providerConfigRef.name = _provCfg.metadata.name
-}
-
 _openPorts = [
   {"fromPort" = r.fromPort, "toPort" = r.toPort, "protocol" = r.protocol} 
     for r in oxr.spec.securityGroups?.tcpPorts
