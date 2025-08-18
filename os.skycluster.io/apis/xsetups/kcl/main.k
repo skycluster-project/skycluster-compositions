@@ -118,6 +118,30 @@ _items += [opv1a1.NetworkV2{
   } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "NetworkV2")
 }]
 
+# First public subnet should sufficient for our case
+_publicSubnet = [v for k, v in ocds if "subnetPublic" in k]?[0] or Undefined
+_extNetworkId = _publicSubnet?.Resource?.status?.atProvider?.networkId or Undefined
+# This is external network, associated with the public subnet
+_items += [opv1a1.NetworkV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("extNetworkRef"),
+      "crossplane.io/external-name": _extNetworkId,
+    },
+  },
+  spec = _defaults  | {
+    forProvider = {
+      region = _oxrProvRegion
+      name = oxr.metadata.name
+      portSecurityEnabled: True
+      external: False
+    },
+    managementPolicies = ["Observe"]
+  },
+}] if _extNetworkId or ocds?["extNetwork"] else []
+
+
 _subnets = []
 _subnets +=  [{
   "type" = sub.type, # not relevant for GCP
@@ -143,11 +167,12 @@ _items += [opv1a1.SubnetV2{
     }
     annotations = _default_annotations | {
       **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
-      if s.default or s.type == "public":
+      if s.type == "public":
         **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SubnetV2")
     },
   },
-  spec = _defaults | {
+  spec = {
+    **_defaults,
     forProvider = {
       name = oxr.metadata.name
       region = _oxrProvRegion
@@ -155,10 +180,11 @@ _items += [opv1a1.SubnetV2{
       gatewayIp = s.gatewayIp
       dnsNameservers: ["8.8.8.8", "8.8.4.4"]
       networkIdSelector .matchControllerRef = True
-    }
+    },
+    # only allow external objects for default subnet or first public subnet
+    if s.type == "public":
+      **_management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SubnetV2")
   }
-  if s._defaults or s.type == "public": # only allow external objects for default subnet or first public subnet
-    **_management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SubnetV2")
 } for i, s in _subnets]
 
 _items += [opv1a1.RouterV2{
@@ -176,6 +202,8 @@ _items += [opv1a1.RouterV2{
   } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "RouterV2")
 }]
 
+# Assume that the public subnet has already access to internet
+# and does not need a connection with the router
 _items += [opv1a1.RouterInterfaceV2{
   "metadata": {
     labels = _default_labels
@@ -193,7 +221,7 @@ _items += [opv1a1.RouterInterfaceV2{
       }
     }
   } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "RouterInterfaceV2")
-} for i, s in _subnets]
+} for i, s in _subnets if s.type != "public"]
 
 
 _items += [opv1a1.SecgroupV2{
@@ -341,7 +369,7 @@ _items += [opv1a1.InstanceV2{
       flavorName = oxr.spec?.gateway?.flavor
       imageName = oxr.spec?.gateway?.image
       keyPairSelector.matchControllerRef = True
-      network = [_portId]
+      network = [{port = _portId}]
       # SecurityGroups are not needed as we set the port security to false
       # We should handle security controls within iptables inside the host
       userData = _userData
@@ -350,10 +378,9 @@ _items += [opv1a1.InstanceV2{
 }] if _portId else []
 
 
-
-_publicSubnets = [v for k, v in ocds if "subnetPublic" in k]
 # Just get the first IP of the available public subnet
-_publicSubnetId = _publicSubnets[0]?.Resource?.status?.atProvider?.id if _publicSubnets and len(_publicSubnets) > 0 else Undefined
+_extNetworkName = ocds["extNetworkRef"]?.Resource?.status?.atProvider?.name or Undefined
+# _publicSubnetId = _publicSubnets[0]?.Resource?.metadata?.name if _publicSubnets and len(_publicSubnets) > 0 else Undefined
 
 _items += [opv1a1.FloatingipV2{
   "metadata": {
@@ -366,14 +393,14 @@ _items += [opv1a1.FloatingipV2{
   spec = _defaults | {
     forProvider = {
       region = _oxrProvRegion
-      pool = _publicSubnetId
+      pool = _extNetworkName
     }
   } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "FloatingipV2")
-}] if _publicSubnetId or ocds?["floatingip"] else []
+}] if _extNetworkName or ocds?["floatingip"] else []
 
 
-_floatingIp = ocds?["floatingip"]?.Resource?.status?.atProvider?.address
-_instanceIp = ocds?["instance"]?.Resource?.status?.atProvider?.accessIpV4
+_floatingIp = ocds?["floatingip"]?.Resource?.status?.atProvider?.address or Undefined
+_instanceIp = ocds?["instance"]?.Resource?.status?.atProvider?.accessIpV4 or Undefined
 
 _items += [opv1a1.FloatingipAssociateV2{
   "metadata": {
