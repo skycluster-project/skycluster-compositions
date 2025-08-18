@@ -7,7 +7,7 @@ spec:
   flavor: n1.small
   image: ubuntu-24.04
   publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
-  publicIp: 
+  publicIp: false
   userData: |
     #!/bin/bash
     echo "Hello, World!" > /var/tmp/hello.txt

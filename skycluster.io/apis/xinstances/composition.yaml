@@ -190,6 +190,40 @@ spec:
             ] if oxr.spec?.providerRef?.platform == "gcp" else []
 
 
+            _items = [
+              {
+                apiVersion = "os.skycluster.io/v1alpha1"
+                kind = "XInstance"
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("xinstance")
+                  }
+                }
+                spec = {
+                  applicationId = _appId
+                  flavor = _it
+                  image = _ami
+                  publicKey = _publicKey
+                  publicIp = oxr.spec?.publicIp or False
+                  userData = _userData
+                  ipForwarding = oxr.spec?.ipForwarding or False
+                  securityGroups = oxr.spec?.securityGroups
+                  rootVolumes = oxr.spec?.rootVolumes or []
+                  providerRef={
+                    platform= _oxrProvPlatform
+                    region= _oxrProvRegion
+                    zone = _oxrProvZone
+                  }
+                }
+              }
+            ] if oxr.spec?.providerRef?.platform == "openstack" else []
+
+
             _publicIp = ocds?["xinstance"]?.Resource?.status?.network?.publicIp or Undefined
             _privateIp = ocds?["xinstance"]?.Resource?.status?.network?.privateIp or Undefined
 

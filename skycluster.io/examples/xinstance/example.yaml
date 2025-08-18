@@ -11,6 +11,7 @@ spec:
   userData: |
     #!/bin/bash
     echo "Hello, World!" > /var/tmp/hello.txt
+  ipForwarding: true # only openstack platform
   securityGroups:
     tcpPorts:
       - fromPort: 22

@@ -11,7 +11,7 @@ assert ctx is not Undefined, "Context must be provided in the params"
 _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
 
-_xsetup = _extraRes["XSetups"][0]
+_xsetup = _extraRes["XSetup"][0]
 assert _xsetup is not Undefined, "XSetup must be provided in the extra resources"
 
 _skySetup = _extraRes["SkySetups"][0]
@@ -126,8 +126,8 @@ _items += [opv1a1.SecgroupV2{
 }] if oxr.spec.securityGroups or ocds?["secgroup"] else []
 
 
-_tcpPorts = oxr.spec.tcpPorts
-_udpPorts = oxr.spec.udpPorts
+_tcpPorts = oxr.spec.tcpPorts or []
+_udpPorts = oxr.spec.udpPorts or []
 
 _items += [opv1a1.SecgroupRuleV2{
   "metadata": {
@@ -169,7 +169,8 @@ _items += [opv1a1.FloatingipV2{
 }] if _extNetworkName and oxr.spec.publicIp or ocds?["floatingip"] else []
 
 
-_portId = ocds?.port?.Resource?.status?.atProvider?.id
+_ports = [r.Resource?.status?.atProvider?.id for k, r in ocds if k.find("port") != -1 and r.Resource?.status?.atProvider?.id]
+_portId = _ports?[0] or Undefined
 _floatingIp = ocds?["floatingip"]?.Resource?.status?.atProvider?.address or Undefined
 _instanceIp = ocds?["instance"]?.Resource?.status?.atProvider?.accessIpV4 or Undefined
 
@@ -209,8 +210,8 @@ _items += [opv1a1.InstanceV2{
   spec = _defaults | {
     forProvider = {
       name = oxr.metadata.name
-      flavorName = oxr.spec?.gateway?.flavor
-      imageName = oxr.spec?.gateway?.image
+      flavorName = oxr.spec?.flavor
+      imageName = oxr.spec?.image
       keyPairSelector = {
         matchLabels = _default_labels | {
           "skycluster.io/composite-name": _oxrName

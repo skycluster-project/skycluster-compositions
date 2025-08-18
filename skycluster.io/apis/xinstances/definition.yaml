@@ -25,6 +25,8 @@ spec:
                 type: string
               image:
                 type: string
+              ipForwarding:
+                type: boolean
               providerRef:
                 properties:
                   platform:
