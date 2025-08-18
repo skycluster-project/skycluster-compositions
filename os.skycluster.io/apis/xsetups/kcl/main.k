@@ -421,34 +421,46 @@ _items += [opv1a1.FloatingipAssociateV2{
 
 
 
-
+_keypairId = ocds?["keypair"]?.Resource?.status?.atProvider?.id
+_keypairName = ocds?["keypair"]?.Resource?.status?.atProvider?.name
+_publicKey = ocds?["keypair"]?.Resource?.status?.atProvider?.publicKey
 _vpcId = ocds?.network?.Resource?.status?.atProvider?.id
 _ocdsSubnets = [v.Resource for k, v in ocds if k.find("subnet") != -1 and v.Resource]
 _defaultSecGroup = ocds?["secgroup"]?.Resource?.status?.atProvider?.id
 
 dxr = {
   **option("params").dxr,
-  status.vpc = {
-    id = _vpcId
-    cidrBlock = _vpcCidr 
-  } if _vpcId else {},
-  status.securityGroup = {
-    id = _defaultSecGroup
-  } if _defaultSecGroup else {},
-  status.subnets = [
-    {
-      type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
-      id = v.status?.atProvider?.id
-      networkId = v.status?.atProvider?.networkId
-      networkName = _extNetworkName if v.status?.atProvider?.networkId == _extNetworkId else Undefined
-      gatewayIp= v.status?.atProvider?.gatewayIp
-      cidrBlock = v.status?.atProvider?.cidrBlock
-    } for _, v in _ocdsSubnets if v
-  ]
-  status.gateway = {
-    publicIp = _floatingIp
-    privateIp = _instanceIp
-  } if (_floatingIp or _instanceIp) and _extNetworkId and _extNetworkName else {},
+  if _vpcId:
+    status.vpc = {
+      id = _vpcId
+      cidrBlock = _vpcCidr 
+    } 
+  if _defaultSecGroup:
+    status.securityGroup = {
+      id = _defaultSecGroup
+    } 
+  if _extNetworkId and _extNetworkName:
+    status.subnets = [
+      {
+        type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
+        id = v.status?.atProvider?.id
+        networkId = v.status?.atProvider?.networkId
+        networkName = _extNetworkName if v.status?.atProvider?.networkId == _extNetworkId else Undefined
+        gatewayIp= v.status?.atProvider?.gatewayIp
+        cidrBlock = v.status?.atProvider?.cidrBlock
+      } for _, v in _ocdsSubnets if v
+    ]
+  if _keypairId:
+    status.keypair = {
+      id = _keypairId
+      name = _keypairName
+      publicKey = _publicKey
+    }
+  if _floatingIp or _instanceIp:
+    status.gateway = {
+      publicIp = _floatingIp
+      privateIp = _instanceIp
+    }
 }
 
 # Collect all resources into a list for output

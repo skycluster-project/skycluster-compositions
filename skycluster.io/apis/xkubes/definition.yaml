@@ -21,9 +21,39 @@ spec:
             properties:
               applicationId:
                 type: string
-              nodeTypes:
+              controlPlane:
+                properties:
+                  autoScaling:
+                    properties:
+                      enabled:
+                        type: boolean
+                      maxCount:
+                        type: number
+                      minCount:
+                        type: number
+                    type: object
+                  highAvailability:
+                    type: boolean
+                  instanceType:
+                    type: string
+                type: object
+              nodeGroups:
                 items:
-                  type: string
+                  properties:
+                    autoScaling:
+                      properties:
+                        enabled:
+                          type: boolean
+                        maxCount:
+                          type: number
+                        minCount:
+                          type: number
+                      type: object
+                    instanceTypes:
+                      type: string
+                    publicAccess:
+                      type: boolean
+                  type: object
                 type: array
               principal:
                 properties:

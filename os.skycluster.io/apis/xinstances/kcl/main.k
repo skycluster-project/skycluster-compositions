@@ -98,9 +98,10 @@ _items += [opv1a1.KeypairV2{
       publicKey = oxr.spec.publicKey
     }
   } | helper._management_policy(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "KeypairV2")
-}]
+}] if oxr.spec.publicKey else []
 
-
+_keypairName = ocds?["keypair"]?.Resource?.status?.atProvider?.name if oxr.spec.keyPair else \
+  _xsetup.status?.keypair?.name
 
 
 _items += [opv1a1.SecgroupV2{
@@ -145,7 +146,7 @@ _items += [opv1a1.SecgroupRuleV2{
 } for i, p in _tcpPorts]
 
 # Just get the first IP of the available public subnet
-_extNetworkName = [s for s in _xsetup.status?.subnets if s.type == "public" and s.networkName]?[0] or Undefined
+_extNetworkName = [s.networkName for s in _xsetup.status?.subnets if s.type == "public" and s.networkName]?[0] or Undefined
 
 _items += [opv1a1.FloatingipV2{
   "metadata": {
@@ -207,11 +208,7 @@ _items += [opv1a1.InstanceV2{
       name = oxr.metadata.name
       flavorName = oxr.spec?.flavor
       imageName = oxr.spec?.image
-      keyPairSelector = {
-        matchLabels = _default_labels | {
-          "skycluster.io/composite-name": _oxrName
-        }
-      }
+      keyPair = _keypairName
       if not oxr.spec.ipForwarding:
         securityGroups = [_securityGroupId] if oxr.spec.securityGroups else [_defaultSecurityGroupId]
       network = [{port = _portId}]

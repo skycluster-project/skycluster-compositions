@@ -22,8 +22,15 @@ _oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
 _oxrProvZones = oxr.spec?.providerRef?.zones or Undefined
 _oxrProvZone = oxr.spec?.providerRef?.zones?.primary or Undefined
 
+_ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name
+_it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0]
+
 assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone, \
   "Provider platform, region, and primary zone and must be specified in the providerRef"
+
+# If it is OpenStack or baremetal, then the control plane must be provided.
+assert oxr.spec?.controlPlane or _oxrProvPlatform.lower() in ["aws", "gcp", "azure"], \
+  "Control plane is required for unmanaged clusters (e.g. OpenStack)"
 
 _svcCidr = oxr.spec?.serviceCidr or Undefined
 _nodesTypes = oxr.spec?.nodeTypes or Undefined
@@ -36,103 +43,190 @@ _nodeTypes = [item for sublist in _a for item in sublist]
 
 _items = []
 
-_items += [
-  {
-    apiVersion = "aws.skycluster.io/v1alpha1"
-    kind = "XKube"
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("xk8s")
-      }
+_items += [{
+  apiVersion = "aws.skycluster.io/v1alpha1"
+  kind = "XKube"
+  metadata = {
+    labels = {
+      **oxr.metadata?.labels,
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
     }
-    spec = {
-      applicationId = oxr.spec?.applicationId or Undefined
-      serviceCidr = oxr.spec?.serviceCidr or Undefined
-      principalArn = oxr.spec?.principal?.id or Undefined
-      nodeGroups = [
-        {
-          nodeCount = 1
-          instanceTypes = _nodeTypes
-          publicAccess = True
+    annotations = {
+      **oxr.metadata?.annotations,
+      **helper._set_resource_name("xk8s")
+    }
+  }
+  spec = {
+    applicationId = oxr.spec?.applicationId or Undefined
+    serviceCidr = oxr.spec?.serviceCidr or Undefined
+    principalArn = oxr.spec?.principal?.id or Undefined
+    nodeGroups = [
+      *[{
+        nodeCount = 1
+        instanceType = helper._get_instance_type(_provSettings, n.instanceTypes or "2vCPU-4GB", _oxrProvZone)?[0]
+        publicAccess = n.publicAccess
+        if n.autoScaling:
           autoScaling = {
-            enabled = True
-            minSize = 1
-            maxSize = 1
+            enabled = n.autoScaling?.enabled
+            minSize = n.autoScaling?.minCount
+            maxSize = n.autoScaling?.maxCount
           }
-        },
-        {
-          nodeCount = 1
-          instanceTypes = _nodesTypes 
-          publicAccess = False
-          autoScaling = {
-            enabled = True
-            minSize = 1
-            maxSize = 3
-          }
-        } if _nodesTypes else {}
+        } for n in _nodeGroups
       ]
-      providerRef = {
-        platform = _oxrProvPlatform
-        region = _oxrProvRegion
-        zones = _oxrProvZones
-      }
+    ]
+    # nodeGroups = [
+    #   {
+    #     nodeCount = 1
+    #     instanceTypes = _nodeTypes
+    #     publicAccess = True
+    #     autoScaling = {
+    #       enabled = True
+    #       minSize = 1
+    #       maxSize = 1
+    #     }
+    #   },
+    #   {
+    #     nodeCount = 1
+    #     instanceTypes = _nodesTypes 
+    #     publicAccess = False
+    #     autoScaling = {
+    #       enabled = True
+    #       minSize = 1
+    #       maxSize = 3
+    #     }
+    #   } if _nodesTypes else {}
+    # ]
+    providerRef = {
+      platform = _oxrProvPlatform
+      region = _oxrProvRegion
+      zones = _oxrProvZones
     }
-  } if _oxrProvPlatform == "aws" else Undefined
-] if oxr.spec?.providerRef?.platform == "aws" else []
+  }
+}] if _oxrProvPlatform == "aws" else []
 
-_items += [
-  {
-    apiVersion = "gcp.skycluster.io/v1alpha1"
-    kind = "XKube"
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("xk8s")
-      }
+_items += [{
+  apiVersion = "gcp.skycluster.io/v1alpha1"
+  kind = "XKube"
+  metadata = {
+    labels = {
+      **oxr.metadata?.labels,
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
     }
-    spec = {
-      applicationId = oxr.spec?.applicationId or Undefined
-      serviceCidr = oxr.spec?.serviceCidr or Undefined
-      # principalArn = oxr.spec?.principal?.id or Undefined
-      nodeGroups = [
+    annotations = {
+      **oxr.metadata?.annotations,
+      **helper._set_resource_name("xk8s")
+    }
+  }
+  spec = {
+    applicationId = oxr.spec?.applicationId or Undefined
+    serviceCidr = oxr.spec?.serviceCidr or Undefined
+    # principalArn = oxr.spec?.principal?.id or Undefined
+
+    nodeGroups = [
+      *[{
+        nodeCount = 1
+        instanceType = helper._get_instance_type(_provSettings, n.instanceTypes or "2vCPU-4GB", _oxrProvZone)?[0]
+        publicAccess = n.publicAccess
+        if n.autoScaling:
+          autoScaling = {
+            enabled = n.autoScaling?.enabled
+            minSize = n.autoScaling?.minCount
+            maxSize = n.autoScaling?.maxCount
+          }
+        } for n in _nodeGroups
+      ]
+    ]  
+    # nodeGroups = [
+    #   {
+    #     nodeCount = 1
+    #     instanceType = _nodeTypes?[0] # For GCP we use single instance type
+    #     publicAccess = True
+    #     autoScaling = {
+    #       enabled = True
+    #       minSize = 1
+    #       maxSize = 1
+    #     }
+    #   },
+    #   # {
+    #   #   nodeCount = 1
+    #   #   instanceTypes = _nodesTypes 
+    #   #   publicAccess = False
+    #   #   autoScaling = {
+    #   #     enabled = True
+    #   #     minSize = 1
+    #   #     maxSize = 3
+    #   #   }
+    #   # } if _nodesTypes else {}
+    # ]
+    providerRef = {
+      platform = _oxrProvPlatform
+      region = _oxrProvRegion
+      zones = _oxrProvZones
+    }
+  }
+}] if _oxrProvPlatform == "gcp" else []
+
+
+_nodeGroups = [n for n in oxr.spec?.nodeGroups if n]
+
+_items += [{
+  apiVersion = "os.skycluster.io/v1alpha1"
+  kind = "XKube"
+  metadata = {
+    labels = {
+      **oxr.metadata?.labels,
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
+    }
+    annotations = {
+      **oxr.metadata?.annotations,
+      **helper._set_resource_name("xk8s")
+    }
+  }
+  spec = {
+    applicationId = oxr.spec?.applicationId or Undefined
+    serviceCidr = oxr.spec?.serviceCidr or Undefined
+    # principalArn = oxr.spec?.principal?.id or Undefined
+    
+    nodeGroups = [
+      # First node group is for controller node
+      if oxr.spec?.controlPlane:
         {
           nodeCount = 1
-          instanceType = _nodeTypes?[0] # For GCP we use single instance type
+          role = "control-plane"
+          instanceType = helper._get_instance_type(_provSettings, oxr.spec?.controlPlane?.instanceType or "4vCPU-16GB", _oxrProvZone)?[0]
           publicAccess = True
+          highAvailability = oxr.spec?.controlPlane?.highAvailability
+          if oxr.spec?.controlPlane?.autoScaling:
+            autoScaling = {
+              enabled = oxr.spec?.controlPlane?.autoScaling?.enabled
+              minSize = oxr.spec?.controlPlane?.autoScaling?.minCount
+              maxSize = oxr.spec?.controlPlane?.autoScaling?.maxCount
+            }
+        }, 
+      # Rest of node groups (at least there must be one with public access)
+      *[{
+        nodeCount = 1
+        role = "worker"
+        instanceType = helper._get_instance_type(_provSettings, oxr.spec?.controlPlane?.instanceType or "2vCPU-4GB", _oxrProvZone)?[0]
+        # instanceType = n.instanceTypes
+        publicAccess = n.publicAccess
+        if n.autoScaling:
           autoScaling = {
-            enabled = True
-            minSize = 1
-            maxSize = 1
+            enabled = n.autoScaling?.enabled
+            minSize = n.autoScaling?.minCount
+            maxSize = n.autoScaling?.maxCount
           }
-        },
-        # {
-        #   nodeCount = 1
-        #   instanceTypes = _nodesTypes 
-        #   publicAccess = False
-        #   autoScaling = {
-        #     enabled = True
-        #     minSize = 1
-        #     maxSize = 3
-        #   }
-        # } if _nodesTypes else {}
+        } for n in _nodeGroups
       ]
-      providerRef = {
-        platform = _oxrProvPlatform
-        region = _oxrProvRegion
-        zones = _oxrProvZones
-      }
+    ]
+
+    providerRef = {
+      platform = _oxrProvPlatform
+      region = _oxrProvRegion
+      zones = _oxrProvZones
     }
-  } if _oxrProvPlatform == "gcp" else Undefined
-] if oxr.spec?.providerRef?.platform == "gcp" else []
+  }
+}] if _oxrProvPlatform == "openstack" else []
 
 
 items = _items

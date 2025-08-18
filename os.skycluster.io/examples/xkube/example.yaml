@@ -2,4 +2,36 @@ apiVersion: os.skycluster.io/v1alpha1
 kind: XKube
 metadata:
   name: example
-spec: {}
+spec: 
+  applicationId: example-app
+  serviceCidr: 10.0.0.0/24
+  # Principal ARN for the IAM role that has permissions to manage the cluster
+  # The purpose of this role is to allow the user assuming the role to 
+  # view the cluster status through the AWS console or CLI (+optional)
+  # principalArn: arn:aws:iam::123456789012:role/ExampleRole
+  nodeGroups:
+    - nodeCount: 1
+      role: control-plane
+      instanceType: 4vCPU-32GB
+      publicAccess: true
+      autoScaling:
+        enabled: true
+        minSize: 1
+        maxSize: 1
+    - nodeCount: 1
+      role: worker
+      instanceType: 2vCPU-8GB
+      publicAccess: false
+      autoScaling:
+        enabled: true
+        minSize: 1
+        maxSize: 5
+  providerRef:
+    platform: openstack
+    region: SCINET
+    zones: 
+      primary: default
+      # secondary: us-east1-b
+    # name: example-provider
+status:
+  log: "This is a placeholder for the status field"

@@ -5,11 +5,37 @@ metadata:
 spec: 
   applicationId: example-app
   serviceCidr: 10.0.0.0/24
-  nodeTypes:
-    - "2vCPU-4GB"
-  principal:
+
+  # controlPlane only required for un-managed clusters
+  controlPlane:
+    instanceType: "8vCPU-32GB"
+    autoScaling:
+      enabled: true
+      minCount: 1
+      maxCount: 3
+    highAvailability: true
+
+  nodeGroups:
+  # There must be at least one node group with public access
+  # and it is used for gateway nodes
+  - instanceTypes: "4vCPU-4GB"
+    publicAccess: true
+    autoScaling: 
+      enabled: false
+      minCount: 1
+      maxCount: 1
+    
+  - instanceTypes: "2vCPU-4GB"
+    publicAccess: false
+    autoScaling: 
+      enabled: false
+      minCount: 1
+      maxCount: 1
+    
+  principal: 
     type: user | role | serviceAccount | servicePrincipal | managedIdentity
     id: string # ARN (AWS) | member (GCP) | principalId (Azure)
+    
   providerRef:
     # The provider is identified by the combination 
     # of the provider platform, the region and the primary zone.

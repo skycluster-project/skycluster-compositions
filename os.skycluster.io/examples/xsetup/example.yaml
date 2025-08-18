@@ -43,6 +43,7 @@ status:
   keypair:
     name: example-keypair
     id: example-keypair-id
+    publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEArD1z...
   vpc:
     id: vpc-12345678
     cidrBlock: "10.20.30.0/16"
