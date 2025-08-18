@@ -9,16 +9,16 @@ metadata:
     skycluster.io/provider-zone: default
 spec:
   vpcCidr: 10.120.0.0/16
-  # publicKey: |
-  #   ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEArD1z...
+  publicKey: |
+    ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEArD1z...
   gateway:
     image: 2vCPU-4GB
-    # flavor: TBD
-    # volumeType: gp2
-    # volumeSize: 20
-    # userData : |
-    #   #!/bin/bash
-    #   echo "Initializing gateway..."
+    flavor: TBD
+    volumeType: gp2
+    volumeSize: 20
+    userData : |
+      #!/bin/bash
+      echo "Initializing gateway..."
   # Subnet CIDRs should be within the VPC CIDR range
   subnets:
     - type: public

@@ -1,5 +1,4 @@
 import helper.v1alpha1.main as helper
-import helper.v1alpha1.aws as helper_aws
 
 
 oxr = option("params").oxr # observed composite resource
