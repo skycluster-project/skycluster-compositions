@@ -5,5 +5,5 @@ version = "0.0.1"
 
 
 [dependencies]
-helper = { git = "https://github.com/skycluster-project/kcl-modules", commit = "43a9304", version = "0.0.1" }
-provider-aws = { git = "https://github.com/skycluster-project/kcl-modules", commit = "43a9304", version = "0.0.1" }
+helper = { git = "https://github.com/skycluster-project/kcl-modules", commit = "f92872a", version = "0.0.1" }
+provider-aws = { git = "https://github.com/skycluster-project/kcl-modules", commit = "f92872a", version = "0.0.1" }
