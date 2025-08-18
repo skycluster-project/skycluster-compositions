@@ -46,9 +46,14 @@ status:
   vpc:
     id: vpc-12345678
     cidrBlock: "10.20.30.0/16"
+  securityGroup:
+    id: sg-12345678
   subnets:
     - type: public
       id: subnet-12345678
+      networkId: vpc-12345678
+      networkName: ext-network
+      gatewayIp: 10.20.30.1
       cidrBlock: "10.20.30.0/24"
   gateway:
     publicIp: "<public-ip>"

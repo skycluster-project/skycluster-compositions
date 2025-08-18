@@ -380,7 +380,6 @@ _items += [opv1a1.InstanceV2{
 
 # Just get the first IP of the available public subnet
 _extNetworkName = ocds["extNetworkRef"]?.Resource?.status?.atProvider?.name or Undefined
-# _publicSubnetId = _publicSubnets[0]?.Resource?.metadata?.name if _publicSubnets and len(_publicSubnets) > 0 else Undefined
 
 _items += [opv1a1.FloatingipV2{
   "metadata": {
@@ -425,7 +424,7 @@ _items += [opv1a1.FloatingipAssociateV2{
 
 _vpcId = ocds?.network?.Resource?.status?.atProvider?.id
 _ocdsSubnets = [v.Resource for k, v in ocds if k.find("subnet") != -1 and v.Resource]
-
+_defaultSecGroup = ocds?["secgroup"]?.Resource?.status?.atProvider?.id
 
 dxr = {
   **option("params").dxr,
@@ -433,17 +432,23 @@ dxr = {
     id = _vpcId
     cidrBlock = _vpcCidr 
   } if _vpcId else {},
+  status.securityGroup = {
+    id = _defaultSecGroup
+  } if _defaultSecGroup else {},
   status.subnets = [
     {
       type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
       id = v.status?.atProvider?.id
+      networkId = v.status?.atProvider?.networkId
+      networkName = _extNetworkName if v.status?.atProvider?.networkId == _extNetworkId else Undefined
+      gatewayIp= v.status?.atProvider?.gatewayIp
       cidrBlock = v.status?.atProvider?.cidrBlock
     } for _, v in _ocdsSubnets if v
   ]
   status.gateway = {
     publicIp = _floatingIp
     privateIp = _instanceIp
-  } if _floatingIp or _instanceIp else {},
+  } if (_floatingIp or _instanceIp) and _extNetworkId and _extNetworkName else {},
 }
 
 # Collect all resources into a list for output

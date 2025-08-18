@@ -85,12 +85,23 @@ spec:
                 type: object
               log:
                 type: string
+              securityGroup:
+                properties:
+                  id:
+                    type: string
+                type: object
               subnets:
                 items:
                   properties:
                     cidrBlock:
                       type: string
+                    gatewayIp:
+                      type: string
                     id:
+                      type: string
+                    networkId:
+                      type: string
+                    networkName:
                       type: string
                     type:
                       type: string

@@ -2,4 +2,40 @@ apiVersion: os.skycluster.io/v1alpha1
 kind: XInstance
 metadata:
   name: example
-spec: {}
+spec: 
+  applicationId: example-app
+  flavor: n1.small
+  image: ubuntu-24.04
+  publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
+  publicIp: 
+  userData: |
+    #!/bin/bash
+    echo "Hello, World!" > /var/tmp/hello.txt
+  # If IP forwarding is required, security groups must not be set
+  # Enabling security groups causes issues with IP forwarding
+  ipForwarding: true
+  securityGroups:
+    tcpPorts:
+      - fromPort: 22
+        toPort: 22
+        protocol: tcp
+    udpPorts:
+      - fromPort: 80
+        toPort: 80
+        protocol: udp
+  rootVolumes:
+    - size: 20Gi
+      type: gp2
+  providerRef:
+    platform: openstack
+    region: SCINET
+    zone: default
+status:
+  log: "Instance created successfully."
+  network:
+    publicIp: "203.0.113.0"
+    privateIp: "10.0.0.1"
+  keypair: 
+    name: example-keypair
+    id: kp-12345678
+
