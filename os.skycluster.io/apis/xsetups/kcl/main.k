@@ -1,1 +1,381 @@
-The_first_kcl_program = 'Hello World!'
+import helper.v1alpha1.main as helper
+import provider_openstack.v1alpha1 as opv1a1
+import json
+
+oxr = option("params").oxr # observed composite resource
+ocds = option("params")?.ocds # observed composed resources
+# _dxr = option("params").dxr # desired composite resource
+# dcds = option("params").dcds # desired composed resources
+
+assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
+assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
+
+ctx = option("params")?.ctx
+assert ctx is not Undefined, "Context must be provided in the params"
+
+_extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
+assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+
+_provCfg = _extraRes["ProviderConfig"][0]
+_skySetup = _extraRes["SkySetups"][0]
+
+_ns = _skySetup.spec.namespace or "skycluster-system"
+
+_oxrProvRegion = oxr.spec.providerRef.region
+_oxrProvZone = oxr.spec.providerRef.zones?.primary
+_oxrProvPlatform = oxr.spec.providerRef.platform
+_oxrAppId = oxr.spec.applicationId or Undefined
+
+assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, "Provider region, primary zone, platform must be specified"
+assert len(oxr.spec.subnets) > 0, "At least one subnet must be specified in the XSkyCluster spec"
+
+assert oxr.spec?.publicKey, "SSH public key must be specified in the XSkyCluster spec"
+
+_vpcCidr = oxr.spec.vpcCidr
+_vpcCidrParts = _vpcCidr.split("/")
+_vpcCidrIp = _vpcCidrParts[0]
+_vpcCidrOctets = _vpcCidrIp.split(".")
+_vpcCidrFirst = _vpcCidrOctets[0]
+_vpcCidrSecond = _vpcCidrOctets[1]
+_vpcCidrThird = _vpcCidrOctets[2]
+_vpcCidrMask = _vpcCidrParts[1]
+
+
+# Labels can contains a reference to an external resource, 
+# the value must be a valid JSON string, example:
+# {"apiVersion":"identity.openstack.io/v1alpha1","kind":"ProjectV3","id":"uuid"}
+_external_resources: ({str:str}, str, str) -> {str: str} = lambda labels, av, ki {
+  ext_labels = [json.decode(v) for _, v in labels if labels and json.validate(v)]
+  filtered = [i for i in ext_labels if i["apiVersion"] and i["kind"] and i["apiVersion"].lower() == av.lower() and i["kind"].lower() == ki.lower()]
+  ext_id = filtered[0]?.id if filtered and len(filtered) == 1 else Undefined
+  {
+    "crossplane.io/external-name": ext_id
+  } if ext_id else Undefined
+}
+
+_managed_policy_observed = True if oxr.metadata.Labels and "skycluster.io/external-resources" in oxr.metadata.Labels else False
+_defaults = {
+  providerConfigRef = {
+      name = _provCfg.metadata.name
+    },
+  managementPolicies = ["Observed"] if _managed_policy_observed else ["*"]
+}
+
+_default_labels = {
+  **oxr.metadata?.labels,
+  **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+}
+
+_default_annotations = {
+  **oxr.metadata?.annotations,
+  **helper._is_paused_label(oxr.metadata.labels),
+}
+
+
+_items = []
+
+_items += [opv1a1.ProjectV3{
+  "metadata": {
+    labels = _default_labels 
+    annotations = _default_annotations | {
+      **helper._set_resource_name("project"),
+      **_external_resources(oxr.metadata.labels, "identity.openstack.io/v1alpha1", "ProjectV3")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      domainId = oxr.spec?.domainId
+      region = _oxrProvRegion
+      name = oxr.metadata.name
+    }
+  }
+}]
+
+_items += [opv1a1.NetworkV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("network"),
+      **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "NetworkV2")
+    },
+  },
+  spec = _defaults {
+    forProvider = {
+      region = _oxrProvRegion
+      name = oxr.metadata.name
+      portSecurityEnabled: True
+      external: False
+    }
+  }
+}]
+
+_subnets = []
+_subnets +=  [{
+  "type" = sub.type, # not relevant for GCP
+  "zone" = sub.zone,
+  "gatewayIp" = sub.gatewayIp,
+  if sub.default:
+    "default" = True
+    # Whole VPC CIDR 
+    "primaryCidrBlock" = sub.cidr
+    # second half of the VPC CIDR
+    "podCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 1, 1) 
+    "serviceCidrBlock" = "172.16.0.0/16"
+  else:
+    "default" = False
+} for i, sub in oxr.spec.subnets]
+
+_items += [opv1a1.SubnetV2{
+  "metadata": {
+    labels = _default_labels | {
+      if s.default: "skycluster.io/default-subnet" = "true"
+      "skycluster.io/subnet-id" = "subnet-{}".format(i)
+    }
+    annotations = _default_annotations | {
+      **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
+      # **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "SubnetV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      name = oxr.metadata.name
+      region = _oxrProvRegion
+      cidr = s.primaryCidrBlock
+      gatewayIp = s.gatewayIp
+      dnsNameservers: ["8.8.8.8", "8.8.4.4"]
+      networkIdSelector .matchControllerRef = True
+    }
+  }
+} for i, s in _subnets]
+
+_items += [opv1a1.RouterV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("router"),
+      **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "RouterV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      name = oxr.metadata.name
+    }
+  }
+}]
+
+_items += [opv1a1.RouterInterfaceV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("routerInterface{}".format(i)),
+      # **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "RouterInterfaceV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      routerIdSelector.matchControllerRef = True
+      subnetIdSelector.matchLabels = _default_labels | {
+        "skycluster.io/subnet-id" = "subnet-{}".format(i)
+      }
+    }
+  }
+} for i, s in _subnets]
+
+
+_items += [opv1a1.SecgroupV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("secgroup"),
+      **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "SecgroupV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      name = oxr.metadata.name
+      description = "Security group for {}".format(oxr.metadata.name)
+    }
+  }
+}]
+
+
+_tcpPorts = oxr.spec.tcpPorts
+_udpPorts = oxr.spec.udpPorts
+
+_tcpPortDefaults = [
+  {"fromPort" = 30000, "toPort" = 30020},
+  {"fromPort" = 51820, "toPort" = 51821},
+]
+_tcpPortDefaults = _tcpPortDefaults + [
+  {"fromPort" = port, "toPort" = port} 
+    for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250]
+]
+_tcpPortsToUse = _tcpPorts if _tcpPorts else _tcpPortDefaults
+_openPorts = [{
+  protocol = "tcp"
+  ports = _tcpPortsToUse
+}]
+
+_udpPortDefaults = [
+  {"fromPort" = port, "toPort" = port} 
+    for port in [3478 4500 4789 4800 8472 41641 51820 51821]
+]
+_udpPortsToUse = _udpPorts if _udpPorts else _udpPortDefaults
+_openPorts += [{
+  protocol = "udp"
+  ports = _udpPortsToUse
+}]
+
+
+# Let icmp traffic comes in and allow all outgoing traffic
+_proto = ["tcp", "udp", "icmp"]
+_items += [opv1a1.SecgroupRuleV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("secgroupRuleEgress{}".format(p)),
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      securityGroupIdSelector.matchControllerRef = True
+      direction = "ingress" if p == "icmp" else "egress"
+      ethertype = "IPv4"
+      protocol = p
+      portRangeMax = -1
+      portRangeMin = -1
+      remoteIpPrefix = "0.0.0.0/0"
+    }
+  }
+} for p in _proto]
+
+_items += [opv1a1.SecgroupRuleV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("secgroupRule{}{}".format(p.protocol, i)),
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      securityGroupIdSelector.matchControllerRef = True
+      direction = "ingress"
+      ethertype = "IPv4"
+      protocol = p.protocol
+      portRangeMax = pp.toPort
+      portRangeMin = pp.fromPort
+      remoteIpPrefix = "0.0.0.0/0"
+    }
+  }
+} for p in _openPorts for i, pp in p.ports]
+
+_items += [opv1a1.KeypairV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("keypair"),
+      **_external_resources(oxr.metadata.labels, "compute.openstack.io/v1alpha1", "KeypairV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      name = oxr.metadata.name
+      publicKey = oxr.spec.publicKey
+    }
+  }
+}]
+_items += [opv1a1.PortV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("port"),
+      **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "PortV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      networkIdSelector.matchControllerRef = True
+      fixedIp = [{
+        subnetIdSelector.matchLabels = _default_labels | {
+          "skycluster.io/default-subnet" = "true"
+        }
+      }]
+    }
+  }
+}]
+
+_portId = ocds?.port.Resource?.status?.atProvider?.id
+_userData = oxr.spec.gateway?.userData 
+_userData = _userData.replace("__SUBNETCIDR__", _vpcCidr) if _userData else Undefined
+# __POD_SUBNET_CIDR__
+# __AS_NUMBER__
+
+_items += [opv1a1.InstanceV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("instance"),
+      **_external_resources(oxr.metadata.labels, "compute.openstack.io/v1alpha1", "InstanceV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      name = oxr.metadata.name
+      flavorName = oxr.spec?.gateway?.flavor
+      imageName = oxr.spec?.gateway?.image
+      keyPairSelector.matchControllerRef = True
+      network = [_portId]
+      # SecurityGroups are not needed as we set the port security to false
+      # We should handle security controls within iptables inside the host
+      userData = _userData
+    }
+  }
+}] if _portId else []
+
+
+
+_publicSubnets = [v for k, v in ocds if "subnetPublic" in k]
+# Just get the first IP of the available public subnet
+_publicSubnetId = _publicSubnets[0]?.Resource?.status?.atProvider?.id if _publicSubnets and len(_publicSubnets) > 0 else Undefined
+
+_items += [opv1a1.FloatingipV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("floatingip"),
+      **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "FloatingipV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      pool = _publicSubnetId
+    }
+  }
+}] if _publicSubnetId or ocds?["floatingip"] else []
+
+
+_floatingIp = ocds?["floatingip"]?.Resource?.status?.atProvider?.address
+_instanceIp = ocds?["instance"]?.Resource?.status?.atProvider?.accessIpV4
+
+_items += [opv1a1.FloatingipAssociateV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("floatingipAssociate"),
+      **_external_resources(oxr.metadata.labels, "networking.openstack.io/v1alpha1", "FloatingipAssociateV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      fixedIp = _instanceIp
+      floatingIp = _floatingIp
+      portId = _portId
+    }
+  }
+}] if (_portId and _floatingIp and _instanceIp) or ocds?["floatingipAssociate"] else []

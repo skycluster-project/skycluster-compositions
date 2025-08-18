@@ -1,0 +1,27 @@
+[dependencies]
+  [dependencies.helper]
+    name = "helper"
+    full_name = "helper_0.0.1"
+    version = "0.0.1"
+    url = "https://github.com/skycluster-project/kcl-modules"
+    commit = "43a9304"
+  [dependencies.k8s]
+    name = "k8s"
+    full_name = "k8s_1.32.4"
+    version = "1.32.4"
+    sum = "WrltC/mTXtdzmhBZxlvM71wJL5C/UZ/vW+bF3nFvNbM="
+    reg = "ghcr.io"
+    repo = "kcl-lang/k8s"
+    oci_tag = "1.32.4"
+  [dependencies.provider-kubernetes]
+    name = "provider-kubernetes"
+    full_name = "provider-kubernetes_0.0.1"
+    version = "0.0.1"
+    url = "https://github.com/skycluster-project/kcl-modules"
+    commit = "43a9304"
+  [dependencies.provider-openstack]
+    name = "provider-openstack"
+    full_name = "provider-openstack_0.0.1"
+    version = "0.0.1"
+    url = "https://github.com/skycluster-project/kcl-modules"
+    commit = "43a9304"

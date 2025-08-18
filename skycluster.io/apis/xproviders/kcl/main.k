@@ -132,6 +132,44 @@ _items += [
   }
 ] if _oxrProvPlatform == "gcp" else []
 
+
+_items += [
+  {
+    apiVersion = "os.skycluster.io/v1alpha1"
+    kind = "XSetup"
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("xsetup")
+      }
+    }
+    spec = {
+      vpcCidr = _oxrVpcCidr
+      subnets = _oxrSubnets
+      publicKey = _publicKey
+      gateway = {
+        userData = _userData
+        image = helper._get_image(_provSettings, "ubuntu-24.04", _oxrProvZone)?.name or Undefined
+        flavor = helper._get_instance_type(_provSettings, "2vCPU-4GB", _oxrProvZone)?[0] or Undefined
+        # volumeType = oxr.spec?.gateway?.volumeType or "pd-standard"
+        # volumeSize = oxr.spec?.gateway?.volumeSize or 20
+      }
+      providerRef={
+        platform= _oxrProvPlatform
+        region= _oxrProvRegion
+        zones = {
+          primary: _oxrProvZone
+          # secondary: oxr.spec?.providerRef?.zones?.secondary
+        }
+      }
+    }
+  }
+] if _oxrProvPlatform == "openstack" else []
+
 _publicIp = ocds?["xsetup"]?.Resource?.status?.gateway?.publicIp
 _privateIp = ocds?["xsetup"]?.Resource?.status?.gateway?.privateIp
 
