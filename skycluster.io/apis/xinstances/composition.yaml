@@ -58,6 +58,20 @@ spec:
                   - key: skycluster.io/script-type
                     type: Value
                     value: cloud-init
+            - kind: Secret
+              into: DefaultKeys
+              apiVersion: v1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+                  - key: skycluster.io/secret-type
+                    type: Value
+                    value: default-keypair
     - step: resources
       functionRef:
         name: function-kcl
@@ -74,7 +88,10 @@ spec:
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
           source: |-
             import yaml
+            import json
+            import base64
             import helper.v1alpha1.main as helper
+            import provider_kubernetes.v1alpha2 as k8sv1a2
 
             oxr = option("params").oxr # observed composite resource
             ocds = option("params")?.ocds # observed composed resources
@@ -96,6 +113,12 @@ spec:
             _initScripts = _extraRes["InitScripts"]
             assert _initScripts is not Undefined, "Init scripts must be provided in the extra resources"
 
+            _defaultKey = _extraRes["DefaultKeys"]?[0]
+            assert _defaultKey is not Undefined, "DefaultKey must be provided in the extra resources"
+
+            _ns = "skycluster-system"
+            _providerK8SCfgName = _skySetup?.status?.providerConfig?.kubernetes?.name
+
             _oxrProvPlatform = oxr.spec?.providerRef?.platform or Undefined
             _oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
             _oxrProvZone = oxr.spec?.providerRef?.zone or Undefined
@@ -103,6 +126,24 @@ spec:
             assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone and _appId, \
               "Provider platform, region, and primary zone and application ID must be specified in the providerRef"
 
+
+            _default_labels = {
+              **oxr.metadata?.labels,
+              **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+            }
+
+            _default_annotations = {
+              **oxr.metadata?.annotations,
+              **helper._is_paused_label(oxr.metadata.labels),
+            }
+
+            _extractPrivateKey: (any) -> str = lambda data {
+              _decstr = base64.decode(data) or Undefined
+              _obj = json.decode(_decstr) if _decstr else Undefined
+              _decKey = _obj?["privateKey"] if _obj else Undefined
+              _key = base64.decode(_decKey) if _decKey else Undefined
+              _key or Undefined
+            }
 
             _publicKey = oxr.spec?.publicKey or _skySetup.status?.keypair?.publicKey
             assert _publicKey, "Public key must be specified in the SkySetup status"
@@ -113,7 +154,10 @@ spec:
             _ud = oxr.spec?.userData or Undefined
             _scripts = ["routing-gateway", "ip-forwarding"]
             _defaultUserData: any = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
-            _userData = helper._append_init_scripts([_defaultUserData] + [yaml.decode(_ud)] if _ud else [])
+            _userData = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
+
+            _defaultPrivateKey = _extractPrivateKey(_defaultKey?.data?["config"])
+
 
             _items = [
               {
@@ -224,6 +268,80 @@ spec:
             ] if oxr.spec?.providerRef?.platform == "openstack" else []
 
 
+
+            _secretSSHGate = all_true([_privateIp, _defaultPrivateKey, _providerK8SCfgName])
+            _items += [k8sv1a2.Object{
+              "metadata": {
+                labels = _default_labels
+                annotations = _default_annotations | {
+                  **helper._set_resource_name("secRemoteSSH"),
+                },
+              },
+              spec = {
+                forProvider = {
+                  manifest = {
+                    apiVersion: "v1",
+                    kind: "Secret",
+                    metadata: {
+                      name: "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
+                      namespace: _ns,
+                      labels: _default_labels,
+                      annotations: _default_annotations,
+                    },
+                    type = "Opaque",
+                    stringData = {
+                      config = json.encode({
+                        username = "ubuntu"
+                        password = ""
+                        hostIP = _privateIp
+                        hostPort = "22"
+                        privateKey = _defaultPrivateKey
+                      })
+                    }
+                  },
+                }
+                providerConfigRef.name = _providerK8SCfgName
+              }
+            }] if _secretSSHGate or ocds?["sshSecret"] else []
+
+            _sshSecretName = ocds?["secRemoteSSH"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+            _provCfgGate = all_true([_sshSecretName, _providerK8SCfgName])
+            _items += [k8sv1a2.Object{
+              "metadata": {
+                labels = _default_labels
+                annotations = _default_annotations | {
+                  **helper._set_resource_name("sshProviderConfig"),
+                },
+              },
+              spec = {
+                forProvider = {
+                  manifest = {
+                    apiVersion: "ssh.crossplane.io/v1alpha1",
+                    kind: "ProviderConfig",
+                    metadata: {
+                      name: "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
+                      namespace: _ns,
+                      labels: _default_labels,
+                      annotations: _default_annotations,
+                    },
+                    spec: {
+                      credentials: {
+                        source = "Secret"
+                        secretRef = {
+                          name = _sshSecretName
+                          namespace = _ns,
+                          key = "config"
+                        }
+                      }
+                    }
+                  },
+                },
+                providerConfigRef.name = _providerK8SCfgName
+              }
+            }] if _provCfgGate or ocds?["sshProviderConfig"] else []
+
+
+
             _publicIp = ocds?["xinstance"]?.Resource?.status?.network?.publicIp or Undefined
             _privateIp = ocds?["xinstance"]?.Resource?.status?.network?.privateIp or Undefined
 
@@ -234,6 +352,10 @@ spec:
                 privateIp = _privateIp
                 publicIp = _publicIp
               } if _privateIp or _publicIp else Undefined,
+              if _providerK8SCfgName:
+                providerConfig = {
+                  kubernetes.name = _providerK8SCfgName
+                }
             }]
 
             items = _items + dxr
