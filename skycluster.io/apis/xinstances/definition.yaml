@@ -96,6 +96,14 @@ spec:
                   publicIp:
                     type: string
                 type: object
+              providerConfig:
+                properties:
+                  kubernetes:
+                    properties:
+                      name:
+                        type: string
+                    type: object
+                type: object
             type: object
         required:
         - spec

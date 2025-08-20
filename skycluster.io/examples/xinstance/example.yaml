@@ -36,3 +36,6 @@ status:
   keypair: 
     name: example-keypair
     id: kp-12345678
+  providerConfig:
+    kubernetes:
+      name: "ref"

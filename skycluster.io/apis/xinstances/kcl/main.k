@@ -206,7 +206,7 @@ _items += [k8sv1a2.Object{
             password = ""
             hostIP = _privateIp
             hostPort = "22"
-            privateKey = _defaultPrivateKey
+            privateKey = base64.encode(_defaultPrivateKey)
           })
         }
       },
@@ -225,6 +225,14 @@ _items += [k8sv1a2.Object{
     },
   },
   spec = {
+    references = [{
+      dependsOn = {
+        apiVersion = "v1"
+        kind = "Secret"
+        name = "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
+        namespace = _ns
+      }
+    }]
     forProvider = {
       manifest = {
         apiVersion: "ssh.crossplane.io/v1alpha1",
@@ -252,21 +260,24 @@ _items += [k8sv1a2.Object{
 }] if _provCfgGate or ocds?["sshProviderConfig"] else []
 
 
-
+_sshProviderCfgName = ocds?["sshProviderConfig"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
 _publicIp = ocds?["xinstance"]?.Resource?.status?.network?.publicIp or Undefined
 _privateIp = ocds?["xinstance"]?.Resource?.status?.network?.privateIp or Undefined
 
 dxr = [{
   **option("params").dxr,
   # status.log = _userData
-  status.network = {
-    privateIp = _privateIp
-    publicIp = _publicIp
-  } if _privateIp or _publicIp else Undefined,
-  if _providerK8SCfgName:
-    providerConfig = {
-      kubernetes.name = _providerK8SCfgName
-    }
+  status = {
+    if _privateIp or _publicIp:
+      network = {
+        privateIp = _privateIp
+        publicIp = _publicIp
+      }
+    if _sshProviderCfgName:
+      providerConfig = {
+        kubernetes.name = _sshProviderCfgName
+      }
+  }
 }]
 
 items = _items + dxr
