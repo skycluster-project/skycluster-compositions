@@ -38,10 +38,10 @@ status:
   log: "This is a placeholder for the status field"
   kubeconfig: "base64 kubeconfig"
   token: "token"
-  providerConfig:
-    kubernetes:
-      name: "example"
-  network:
-    privateIp: ""
-    publicIp: ""
-
+  controller:
+    - privateIp: "ip"
+      publicIp: "ip"
+  # providerConfig:
+  #   kubernetes:
+  #     name: "example"
+  

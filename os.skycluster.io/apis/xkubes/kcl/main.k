@@ -274,7 +274,15 @@ _items += [
 
 # ###################### Agents ######################
 
-# Agent xinstance(s)
+# There may be multiple controller, however, we only support single controller
+# This means we use one IP and Token corresponding to one controller, even 
+# if user has specified multiple node groups for controller with node count > 1
+
+_ctrlIp = [v.privateIp for k, v in _ctrlObjData][0]
+_ctrlIpPublic = [v.publicIp for k, v in _ctrlObjData][0]
+_ctrlToken = [v.token for k, v in _ctrlObjData][0]
+_ctrlKubeconfig_enc = [v.kubeconfig_encoded for k, v in _ctrlObjData][0]
+
 _agentNodeGroups = [n for n in oxr.spec.nodeGroups if n and n.role == "worker" ]
 
 _agentObjData = {
@@ -293,18 +301,18 @@ _agentObjData = {
       sshProviderCfg = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
       sshTaskName = "st{}c{}".format(v.nodeGrpHash, v.count)
       sshGate = all_true([
-        ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token,
+        _ctrlToken,
+        _ctrlIp,
         ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name,
         ocds?[k]?.Resource?.status?.network?.privateIp
       ])
       privateIp = ocds?[k]?.Resource?.status?.network?.privateIp
       publicIp = ocds?[k]?.Resource?.status?.network?.publicIp
-      token = ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token
     }
   ) for k, v in _agentObjData
 }
 
-
+# Agent xinstance(s)
 _items += [
   {
     "apiVersion" = "skycluster.io/v1alpha1",
@@ -373,10 +381,16 @@ _items += [
           shell = "/bin/bash -euo pipefail"
           timeoutSeconds = 600
           maxAttempts = 30
-          env = {
-            __K3STOKEN__ = v.token
-            __K3SHOSTIP__ = v.privateIp
-          }
+          env = [
+            {
+              name = "__K3STOKEN__",
+              value = _ctrlToken,
+            },
+            {
+              name = "__K3SHOSTIP__",
+              value = _ctrlIp
+            }
+          ]
         }
         artifactPolicy.capture = "both"    
       }
@@ -391,22 +405,24 @@ _items += [
 dxr = {
   **option("params").dxr,
   status = {
-    # if _ctrlPrivateIp or _ctrlPublicIp:
-    #   network = {
-    #     privateIp = _ctrlPrivateIp
-    #     publicIp = _ctrlPublicIp
-    #   }
-    # if _kubeconfig_encoded: 
-    #   kubeconfig = _kubeconfig_encoded
-    # if _token:
-    #   token = _token
+    if _ctrlKubeconfig_enc:
+      kubeconfig = _ctrlKubeconfig_enc
+    if _ctrlToken:
+      token = _ctrlToken
+    if _ctrlIp or _ctrlIpPublic:
+      controller = [{
+        privateIp = _ctrlIp or Undefined
+        publicIp = _ctrlIpPublic or Undefined
+      }]
     # if _k8sProviderCfgName:
     #   providerConfig = {
     #     kubernetes.name = _k8sProviderCfgName
     #   }
     # log = json.encode({
-    #   len1 = len(_ctrlNodeGrp[:1])
-    #   ctrlNodes = _ctrlNodeGrp[:1]
+    #   "__K3STOKEN__" = _ctrlToken
+    #   "__K3SHOSTIP__" = _ctrlIp
+    #   ctrl = _ctrlObjData
+    #   agents = _agentObjData
     # })
   }
 }
