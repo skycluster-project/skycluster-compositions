@@ -183,6 +183,7 @@ _items += [opv1a1.FloatingipAssociateV2{
       region = _oxrProvRegion
       fixedIp = _instanceIp
       floatingIp = _floatingIp
+      portId = _portId
     }
   } | helper._management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "FloatingipAssociateV2")
 }] if (_floatingIp and _instanceIp) or ocds?["floatingipAssociate"] else []

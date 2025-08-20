@@ -10,7 +10,8 @@ spec:
   # view the cluster status through the AWS console or CLI (+optional)
   # principalArn: arn:aws:iam::123456789012:role/ExampleRole
   nodeGroups:
-    - nodeCount: 1
+    # Warning: changing nodeGroups after cluster provisioning may have unpredicted results
+    - nodeCount: 1 # mutli-controller kubernetes is not supported yet.
       role: control-plane
       instanceType: 4vCPU-32GB
       publicAccess: true

@@ -1,5 +1,6 @@
 import yaml
 import json
+import regex
 import base64
 import helper.v1alpha1.main as helper
 import provider_kubernetes.v1alpha2 as k8sv1a2
@@ -59,8 +60,15 @@ _extractPrivateKey: (any) -> str = lambda data {
 _publicKey = oxr.spec?.publicKey or _skySetup.status?.keypair?.publicKey
 assert _publicKey, "Public key must be specified in the SkySetup status"
 
-_ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name
-_it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0]
+
+# Supporting both skycluster abstract types and images and provider-native images and types
+_abstractFlavor = regex.match(oxr.spec?.flavor or "2vCPU-4GB", "^\d+vCPU-\d+GB$")
+_abstractImage = regex.match(oxr.spec?.image or "ubuntu-24.04", "^ubuntu-\d+\.\d+$")
+
+_ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name \
+  if _abstractImage else oxr.spec?.image
+_it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0] \
+  if _abstractFlavor else oxr.spec?.flavor
 
 _ud = oxr.spec?.userData or Undefined
 _scripts = ["routing-gateway", "ip-forwarding"]

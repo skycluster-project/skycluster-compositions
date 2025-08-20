@@ -1,9 +1,9 @@
 
 import yaml
 import base64
+import crypto
+import json
 import helper.v1alpha1.main as helper
-import provider_openstack.v1alpha1 as opv1a1
-import provider_helm.v1beta1 as helmv1b1
 import provider_kubernetes.v1alpha2 as k8sv1a2
 
 oxr = option("params").oxr # observed composite resource
@@ -24,9 +24,6 @@ assert _skySetup is not Undefined, "SkySetup must be provided in the extra resou
 _provCfg = _extraRes["ProviderConfigs"]?[0]
 assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra resources"
 
-_xSetup = _extraRes["XSetup"][0]
-assert _xSetup is not Undefined, "XSetup must be provided in the extra resources"
-
 _initScripts = _extraRes["InitScripts"]
 assert _initScripts is not Undefined, "Init scripts must be provided in the extra resources"
 
@@ -39,6 +36,9 @@ _oxrProvZone = oxr.spec.providerRef.zones.primary
 _oxrProvPlatform = oxr.spec.providerRef.platform
 _oxrAppId = oxr.spec.applicationId or Undefined
 _oxrAnnotations = oxr.metadata.annotations
+
+assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
+  "Provider region, primary zone, platform must be specified"
 
 _k8sProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
 
@@ -58,8 +58,28 @@ _default_annotations = {
   **helper._is_paused_label(oxr.metadata.labels),
 }
 
-assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
-  "Provider region, primary zone, platform must be specified"
+_filter_objects: (any, str) -> [any] = lambda _objects, role {
+  [{
+    name = o.metadata?.name
+    object = o
+  } for o in _objects if o and o.metadata?.labels["skycluster.io/instance-role"] == role]
+}
+
+_select_scripts: (any, [str]) -> any = lambda _scripts, names {
+  _selected = [s.data for s in _scripts for n in names if s and n.lower() == s.metadata?.labels["skycluster.io/script-init"]]
+  assert len(_selected) == 1, "Expected exactly one script, found {}".format(len(_selected))
+  _selected[0]
+}
+
+_merge = lambda ll, new_ll {ll | new_ll}
+_replace: (str, str, str, str) -> str = lambda s:str, p:str, r:str, z:str {
+  s.replace("__PROVIDERPLATFORM__", p)\
+    .replace("__REGION__", r)\
+      .replace("__ZONE__", z)
+}
+_replace_with: (str, str, str) -> str = lambda s:str, k:str, v:str {
+  s.replace(k, v)
+}
 
 _ns = "skycluster-system"
 _ud = oxr.spec?.userData or Undefined
@@ -67,28 +87,90 @@ _scripts = ["k3s-controller"]
 _defaultUserData = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
 _userDataCtrl = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
 
-_userDataCtrl = _userDataCtrl.replace("__PROVIDERPLATFORM__", _oxrProvPlatform)
-_userDataCtrl = _userDataCtrl.replace("__REGION__", _oxrProvRegion)
-_userDataCtrl = _userDataCtrl.replace("__ZONE__", _oxrProvZone)
+# This is cloud-init
+_userDataCtrl = _replace(
+  _userDataCtrl, _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
+) if _userDataCtrl else Undefined
+
+# This is config map
+_k3sCtrlScript = _select_scripts(_initScriptsSSH, ["k3s-controller-check"]) or {}
+_k3sAgentScript: {str:str} = _select_scripts(_initScriptsSSH, ["k3s-agent"]) or {}
+
+_agentProbeScript = _replace(
+  _k3sAgentScript["probeScript"], _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
+) if _k3sAgentScript else Undefined
+_agentEnsureScript = _replace(
+  _k3sAgentScript["ensureScript"], _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
+) if _k3sAgentScript else Undefined
+
 
 _items = []
 
-_controllerNodes = [n for n in oxr.spec.nodeGroups if n and n.role == "control-plane" ]
+_ctrlNodeGrp = [n for n in oxr.spec.nodeGroups if n and n.role == "control-plane" ]
+_maxNodeCount = 1
+_maxNodeGrpCount = 1
+
+# ng<hash>c<I> = {
+#   nodeGrpHash = <hash>
+#   count = <I>
+#   <additional map str:str>
+# }
+_ctrlObjData = {
+  "ng{}c{}".format(crypto.md5(str(ng)), j): {
+    nodeGrpHash = crypto.md5(str(ng))
+    count = str(j)
+  } for i, ng in _ctrlNodeGrp[:_maxNodeGrpCount] \
+      for j in range(0, min(_maxNodeCount, ng.nodeCount))
+}
+# Add additional map str:str
+_ctrlObjData = {
+  k = _merge(
+    v, 
+    {
+      sshProviderCfg = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
+      sshTaskName = "st{}c{}".format(v.nodeGrpHash, v.count)
+      sshGate = all_true([
+        _agentProbeScript, 
+        _agentEnsureScript, 
+        ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
+      ])
+      token = ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token
+      kubeconfig_encoded = ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
+      privateIp = ocds?[k]?.Resource?.status?.network?.privateIp
+      publicIp = ocds?[k]?.Resource?.status?.network?.publicIp
+      secretName = "sc{}c{}".format(v.nodeGrpHash, v.count)
+      secretGate = all_true([
+        ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token,
+        ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig,
+        ocds?[k]?.Resource?.status?.network?.privateIp
+      ])
+    }
+  ) for k, v in _ctrlObjData
+}
+
+
+# ctrl xinstance(s)
+# Multi controller is not yet supported, we capture the first nodegroup 
+# specified for control-plane and create an instance for it (ignoring nodeCount)
 _items += [
   {
     "apiVersion" = "skycluster.io/v1alpha1",
     "kind" = "XInstance",
     "metadata" = {
-      labels = _default_labels
+      labels = _default_labels | {
+        "skycluster.io/instance-role" = "controller"
+      }
       annotations = _default_annotations | {
-        **helper._set_resource_name("ctrlNode{}".format(i)),
+        # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
+        # changed, the resource is re-created subsequently
+        **helper._set_resource_name("ng{}c{}".format(crypto.md5(str(ng)), j)),
       },
     },
     "spec" = {
       "applicationId" = _oxrAppId,
       "ipForwarding" = True,
       "image" = "ubuntu-24.04",
-      "flavor" = n.instanceType,
+      "flavor" = ng.instanceType,
       "publicIp" = True,
       "providerRef" = {
         "platform" = _oxrProvPlatform,
@@ -97,122 +179,235 @@ _items += [
       },
       "userData" = _userDataCtrl
     }
-  } for i, n in _controllerNodes[:1] # Multi controller is not yet supported
-] if _controllerNodes else []
+  } for i, ng in _ctrlNodeGrp[:_maxNodeGrpCount] \
+      for j in range(0, min(_maxNodeCount, ng.nodeCount))
+] if _ctrlNodeGrp else []
 
+
+# ctrl ssh connection sshtask
 # Multi controller is not yet supported
-_sshProviderCfgName = ocds?["ctrlNode0"]?.Resource?.status?.providerConfig?.kubernetes?.name
-
-_select_scripts: (any, [str]) -> any = lambda _scripts, names {
-    _selected = [s.data for s in _scripts for n in names if s and n.lower() == s.metadata?.labels["skycluster.io/script-init"]]
-    assert len(_selected) == 1, "more than one scripts found, expected only one."
-    yamls = [s for s in _selected if s][0]
-}
-
-_sshScript = _select_scripts(_initScriptsSSH, ["k3s-controller-check"]) or Undefined
-_scriptGate = all_true([_sshScript?["probeScript"], _sshScript?["ensureScript"], _sshProviderCfgName])
-
-_items += [{
-  apiVersion = "ssh.crossplane.io/v1alpha1"
-  kind = "SSHTask"
-  metadata = {
-    labels = _default_labels
-    annotations = _default_annotations | {
-      **helper._set_resource_name("ctrlScript"),
-    },
-  },
-  spec = {
-    providerConfigRef.name = _sshProviderCfgName
-    forProvider = {
-      scripts = {
-        probeScript.inline = _sshScript?["probeScript"]
-        ensureScript.inline = _sshScript?["ensureScript"]
-      }
-      observe = {
-        refreshPolicy = "Always"
-        capture = "both"
-        "map" = [{
-            from = "network.ip"
-            to = "ip"
-          }, {
-            from = "kubeconfig.token"
-            to = "token"
-          }, {
-            from = "kubeconfig.encoded"
-            to = "kubeconfig"
-          }
-        ]
-      }
-      execution = {
-        sudo = True
-        shell = "/bin/bash -euo pipefail"
-        timeoutSeconds = 600
-        maxAttempts = 30
-        # env = [
-        #   {INLINE_VAR = "FOO"}
-        # ]
-      }
-      artifactPolicy.capture = "both"    
-    }
-  }
-}] if _scriptGate or ocds["ctrlScript"] else []
-
-_token = ocds?["ctrlScript"]?.Resource?.status?.atProvider?.observed?.fields?.token
-_kubeconfig_encoded = ocds?["ctrlScript"]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
-_ctrlPrivateIp = ocds?["ctrlScript"]?.Resource?.status?.network?.privateIp
-_ctrlPublicIp = ocds?["ctrlScript"]?.Resource?.status?.network?.publicIp
-_secretGate = all_true([_token, _kubeconfig_encoded, _ctrlPrivateIp])
-
-_items += [k8sv1a2.Object{
-  metadata = {
-    labels = _default_labels
-    annotations = _default_annotations | {
-      **helper._set_resource_name("sshConnSecret"),
-    },
-  },
-  spec = {
-    forProvider = {
-      manifest = {
-        apiVersion = "v1",
-        kind = "Secret",
-        metadata = {
-          name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _ctrlPrivateIp),
-          namespace = _ns,
-          labels = _default_labels | {
-            "skycluster.io/secret-type" = "k3s-connection-data"
-          },
-          annotations = _default_annotations,
-        },
-        spec = {
-          "type" = "Opaque",
-          data = {
-            "kubeconfig" = _kubeconfig_encoded,
-            "token" = base64.encode(_token)
-          }
-        }
+_items += [
+  {
+    apiVersion = "ssh.crossplane.io/v1alpha1"
+    kind = "SSHTask"
+    metadata = {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        **helper._set_resource_name(cv.sshTaskName),
       },
     },
-    providerConfigRef.name = _k8sProviderCfgName
-  }
-}] if _secretGate or ocds["sshConnSecret"] else []
+    spec = {
+      providerConfigRef.name = cv.sshProviderCfg
+      forProvider = {
+        scripts = {
+          probeScript.inline = _k3sCtrlScript?["probeScript"]
+          ensureScript.inline = _k3sCtrlScript?["ensureScript"]
+        }
+        observe = {
+          refreshPolicy = "Always"
+          capture = "both"
+          "map" = [{
+              from = "network.ip"
+              to = "ip"
+            }, {
+              from = "kubeconfig.token"
+              to = "token"
+            }, {
+              from = "kubeconfig.encoded"
+              to = "kubeconfig"
+            }
+          ]
+        }
+        execution = {
+          sudo = True
+          shell = "/bin/bash -euo pipefail"
+          timeoutSeconds = 600
+          maxAttempts = 30
+        }
+        artifactPolicy.capture = "both"    
+      }
+    }
+  } for c, cv in _ctrlObjData if cv.sshGate
+]
+
+
+# ctrl ssh connection secret
+# Multi controller is not yet supported
+_items += [
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
+        # changed, the resource is re-created subsequently
+        **helper._set_resource_name(cv.secretName),
+      },
+    },
+    spec = {
+      forProvider = {
+        manifest = {
+          apiVersion = "v1",
+          kind = "Secret",
+          metadata = {
+            name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.privateIp),
+            namespace = _ns,
+            labels = _default_labels | {
+              "skycluster.io/secret-type" = "k3s-connection-data"
+            },
+            annotations = _default_annotations,
+          },
+          spec = {
+            "type" = "Opaque",
+            data = {
+              "kubeconfig" = cv.kubeconfig_encoded,
+              "token" = base64.encode(cv.token)
+            }
+          }
+        },
+      },
+      providerConfigRef.name = _k8sProviderCfgName
+    }
+  } for c, cv in _ctrlObjData if cv.secretGate
+]
+
+
+
+# ###################### Agents ######################
+
+# Agent xinstance(s)
+_agentNodeGroups = [n for n in oxr.spec.nodeGroups if n and n.role == "worker" ]
+
+_agentObjData = {
+  "ng{}c{}".format(crypto.md5(str(ng)), j): {
+    nodeGrpHash = crypto.md5(str(ng))
+    count = str(j)
+    publicAccess = ng.publicAccess
+    instanceType = ng.instanceType
+  } for i, ng in _agentNodeGroups for j in range(0, ng.nodeCount)
+}
+# Add additional map str:str
+_agentObjData = {
+  k = _merge(
+    v, 
+    {
+      sshProviderCfg = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
+      sshTaskName = "st{}c{}".format(v.nodeGrpHash, v.count)
+      sshGate = all_true([
+        ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token,
+        ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name,
+        ocds?[k]?.Resource?.status?.network?.privateIp
+      ])
+      privateIp = ocds?[k]?.Resource?.status?.network?.privateIp
+      publicIp = ocds?[k]?.Resource?.status?.network?.publicIp
+      token = ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token
+    }
+  ) for k, v in _agentObjData
+}
+
+
+_items += [
+  {
+    "apiVersion" = "skycluster.io/v1alpha1",
+    "kind" = "XInstance",
+    "metadata" = {
+      labels = _default_labels | {
+        "skycluster.io/instance-role" = "worker"
+      }
+      annotations = _default_annotations | {
+        **helper._set_resource_name(k),
+      },
+    },
+    "spec" = {
+      "applicationId" = _oxrAppId,
+      "ipForwarding" = True,
+      "image" = "ubuntu-24.04",
+      "flavor" = v.instanceType,
+      "publicIp" = v.publicAccess,
+      "providerRef" = {
+        "platform" = _oxrProvPlatform,
+        "region" = _oxrProvRegion,
+        "zone" = _oxrProvZone
+      },
+    }
+  } for k, v in _agentObjData
+]
+
+
+# agent ssh connection sshtask
+_items += [
+  {
+    apiVersion = "ssh.crossplane.io/v1alpha1"
+    kind = "SSHTask"
+    metadata = {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        **helper._set_resource_name(v.sshTaskName),
+      },
+    },
+    spec = {
+      providerConfigRef.name = v.sshProviderCfg
+      forProvider = {
+        scripts = {
+          # TODO: change with agent script
+          probeScript.inline = _agentProbeScript
+          ensureScript.inline = _agentEnsureScript
+        }
+        observe = {
+          refreshPolicy = "Always"
+          # TODO: change with agent script
+          capture = "both"
+          "map" = [{
+              from = "k3s.version"
+              to = "k3sVersion"
+            }, {
+              from = "k3s.agentActive"
+              to = "agentActive"
+            }, {
+              from = "k3s.screenExists"
+              to = "screenExists"
+            }
+          ]
+        }
+        execution = {
+          sudo = True
+          shell = "/bin/bash -euo pipefail"
+          timeoutSeconds = 600
+          maxAttempts = 30
+          env = {
+            __K3STOKEN__ = v.token
+            __K3SHOSTIP__ = v.privateIp
+          }
+        }
+        artifactPolicy.capture = "both"    
+      }
+    }
+  } for k, v in _agentObjData if v.sshGate
+] 
+
+
+
+# ###################### dxr ######################
 
 dxr = {
   **option("params").dxr,
   status = {
-    if _ctrlPrivateIp or _ctrlPublicIp:
-      network = {
-        privateIp = _ctrlPrivateIp
-        publicIp = _ctrlPublicIp
-      }
-    if _kubeconfig_encoded: 
-      kubeconfig = _kubeconfig_encoded
-    if _token:
-      token = _token
-    if _k8sProviderCfgName:
-      providerConfig = {
-        kubernetes.name = _k8sProviderCfgName
-      }
-    log = "dummy"
+    # if _ctrlPrivateIp or _ctrlPublicIp:
+    #   network = {
+    #     privateIp = _ctrlPrivateIp
+    #     publicIp = _ctrlPublicIp
+    #   }
+    # if _kubeconfig_encoded: 
+    #   kubeconfig = _kubeconfig_encoded
+    # if _token:
+    #   token = _token
+    # if _k8sProviderCfgName:
+    #   providerConfig = {
+    #     kubernetes.name = _k8sProviderCfgName
+    #   }
+    # log = json.encode({
+    #   len1 = len(_ctrlNodeGrp[:1])
+    #   ctrlNodes = _ctrlNodeGrp[:1]
+    # })
   }
 }
 

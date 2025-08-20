@@ -375,7 +375,7 @@ _items += [opv1a1.InstanceV2{
       userData = _userData
     }
   } | _management_policy(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "InstanceV2")
-}] if _portId else []
+}] if _portId or ocds["instance"] else []
 
 
 # Just get the first IP of the available public subnet
