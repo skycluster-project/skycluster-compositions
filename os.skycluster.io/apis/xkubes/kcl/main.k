@@ -1,9 +1,10 @@
 
 import yaml
+import base64
 import helper.v1alpha1.main as helper
 import provider_openstack.v1alpha1 as opv1a1
 import provider_helm.v1beta1 as helmv1b1
-import provider_kubernetes.v1alpha1 as k8sv1a1
+import provider_kubernetes.v1alpha2 as k8sv1a2
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -29,12 +30,17 @@ assert _xSetup is not Undefined, "XSetup must be provided in the extra resources
 _initScripts = _extraRes["InitScripts"]
 assert _initScripts is not Undefined, "Init scripts must be provided in the extra resources"
 
+_initScriptsSSH = _extraRes["InitScriptsSSH"]
+assert _initScriptsSSH is not Undefined, "Init scripts SSH must be provided in the extra resources"
+
 _oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
 _oxrProvZone = oxr.spec.providerRef.zones.primary
 _oxrProvPlatform = oxr.spec.providerRef.platform
 _oxrAppId = oxr.spec.applicationId or Undefined
 _oxrAnnotations = oxr.metadata.annotations
+
+_k8sProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
 
 _defaults = {
   providerConfigRef = {
@@ -58,8 +64,8 @@ assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
 _ns = "skycluster-system"
 _ud = oxr.spec?.userData or Undefined
 _scripts = ["k3s-controller"]
-_defaultUserData: any = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
-_userDataCtrl = helper._append_init_scripts([_defaultUserData] + [yaml.decode(_ud)] if _ud else [])
+_defaultUserData = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
+_userDataCtrl = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
 
 _userDataCtrl = _userDataCtrl.replace("__PROVIDERPLATFORM__", _oxrProvPlatform)
 _userDataCtrl = _userDataCtrl.replace("__REGION__", _oxrProvRegion)
@@ -70,38 +76,144 @@ _items = []
 _controllerNodes = [n for n in oxr.spec.nodeGroups if n and n.role == "control-plane" ]
 _items += [
   {
-    "apiVersion": "os.skycluster.io/v1alpha1",
-    "kind": "XInstance",
-    "metadata": {
+    "apiVersion" = "skycluster.io/v1alpha1",
+    "kind" = "XInstance",
+    "metadata" = {
       labels = _default_labels
       annotations = _default_annotations | {
-        **helper._set_resource_name("ctrl{}".format(i)),
+        **helper._set_resource_name("ctrlNode{}".format(i)),
       },
     },
-    "spec": {
-      "applicationId": _oxrAppId,
-      "ipForwarding": True,
-      "image": "ubuntu-24.04",
-      "flavor": n.instanceType,
-      "publicIp": True,
+    "spec" = {
+      "applicationId" = _oxrAppId,
+      "ipForwarding" = True,
+      "image" = "ubuntu-24.04",
+      "flavor" = n.instanceType,
+      "publicIp" = True,
       "providerRef" = {
         "platform" = _oxrProvPlatform,
         "region" = _oxrProvRegion,
         "zone" = _oxrProvZone
       },
-      "userData": _userDataCtrl
+      "userData" = _userDataCtrl
     }
-  } for i, n in _controllerNodes
+  } for i, n in _controllerNodes[:1] # Multi controller is not yet supported
 ] if _controllerNodes else []
 
+# Multi controller is not yet supported
+_sshProviderCfgName = ocds?["ctrlNode0"]?.Resource?.status?.providerConfig?.kubernetes?.name
 
+_select_scripts: (any, [str]) -> any = lambda _scripts, names {
+    _selected = [s.data for s in _scripts for n in names if s and n.lower() == s.metadata?.labels["skycluster.io/script-init"]]
+    assert len(_selected) == 1, "more than one scripts found, expected only one."
+    yamls = [s for s in _selected if s][0]
+}
+
+_sshScript = _select_scripts(_initScriptsSSH, ["k3s-controller-check"]) or Undefined
+_scriptGate = all_true([_sshScript?["probeScript"], _sshScript?["ensureScript"], _sshProviderCfgName])
+
+_items += [{
+  apiVersion = "ssh.crossplane.io/v1alpha1"
+  kind = "SSHTask"
+  metadata = {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("ctrlScript"),
+    },
+  },
+  spec = {
+    providerConfigRef.name = _sshProviderCfgName
+    forProvider = {
+      scripts = {
+        probeScript.inline = _sshScript?["probeScript"]
+        ensureScript.inline = _sshScript?["ensureScript"]
+      }
+      observe = {
+        refreshPolicy = "Always"
+        capture = "both"
+        "map" = [{
+            from = "network.ip"
+            to = "ip"
+          }, {
+            from = "kubeconfig.token"
+            to = "token"
+          }, {
+            from = "kubeconfig.encoded"
+            to = "kubeconfig"
+          }
+        ]
+      }
+      execution = {
+        sudo = True
+        shell = "/bin/bash -euo pipefail"
+        timeoutSeconds = 600
+        maxAttempts = 30
+        # env = [
+        #   {INLINE_VAR = "FOO"}
+        # ]
+      }
+      artifactPolicy.capture = "both"    
+    }
+  }
+}] if _scriptGate or ocds["ctrlScript"] else []
+
+_token = ocds?["ctrlScript"]?.Resource?.status?.atProvider?.observed?.fields?.token
+_kubeconfig_encoded = ocds?["ctrlScript"]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
+_ctrlPrivateIp = ocds?["ctrlScript"]?.Resource?.status?.network?.privateIp
+_ctrlPublicIp = ocds?["ctrlScript"]?.Resource?.status?.network?.publicIp
+_secretGate = all_true([_token, _kubeconfig_encoded, _ctrlPrivateIp])
+
+_items += [k8sv1a2.Object{
+  metadata = {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("sshConnSecret"),
+    },
+  },
+  spec = {
+    forProvider = {
+      manifest = {
+        apiVersion = "v1",
+        kind = "Secret",
+        metadata = {
+          name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _ctrlPrivateIp),
+          namespace = _ns,
+          labels = _default_labels | {
+            "skycluster.io/secret-type" = "k3s-connection-data"
+          },
+          annotations = _default_annotations,
+        },
+        spec = {
+          "type" = "Opaque",
+          data = {
+            "kubeconfig" = _kubeconfig_encoded,
+            "token" = base64.encode(_token)
+          }
+        }
+      },
+    },
+    providerConfigRef.name = _k8sProviderCfgName
+  }
+}] if _secretGate or ocds["sshConnSecret"] else []
 
 dxr = {
   **option("params").dxr,
-  # status.network = {
-  #   privateIp = _privateAddress
-  #   publicIp = _publicAddress
-  # } if _privateAddress or _publicAddress else Undefined,
+  status = {
+    if _ctrlPrivateIp or _ctrlPublicIp:
+      network = {
+        privateIp = _ctrlPrivateIp
+        publicIp = _ctrlPublicIp
+      }
+    if _kubeconfig_encoded: 
+      kubeconfig = _kubeconfig_encoded
+    if _token:
+      token = _token
+    if _k8sProviderCfgName:
+      providerConfig = {
+        kubernetes.name = _k8sProviderCfgName
+      }
+    log = "dummy"
+  }
 }
 
 items = [*_items, dxr]

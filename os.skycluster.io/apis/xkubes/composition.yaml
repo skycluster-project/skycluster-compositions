@@ -78,6 +78,20 @@ spec:
                   - key: skycluster.io/script-type
                     type: Value
                     value: cloud-init
+            - kind: ConfigMap
+              into: InitScriptsSSH
+              apiVersion: v1
+              type: Selector
+              selector:
+                minMatch: 1
+                maxMatch: 100
+                matchLabels:
+                  - key: skycluster.io/managed-by
+                    type: Value
+                    value: skycluster
+                  - key: skycluster.io/script-type
+                    type: Value
+                    value: sshtask
     - step: resources
       functionRef:
         name: function-kcl
@@ -154,7 +168,7 @@ spec:
             _ud = oxr.spec?.userData or Undefined
             _scripts = ["k3s-controller"]
             _defaultUserData: any = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
-            _userDataCtrl = helper._append_init_scripts([_defaultUserData] + [yaml.decode(_ud)] if _ud else [])
+            _userDataCtrl = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
 
             _userDataCtrl = _userDataCtrl.replace("__PROVIDERPLATFORM__", _oxrProvPlatform)
             _userDataCtrl = _userDataCtrl.replace("__REGION__", _oxrProvRegion)
@@ -193,10 +207,7 @@ spec:
 
             dxr = {
               **option("params").dxr,
-              # status.network = {
-              #   privateIp = _privateAddress
-              #   publicIp = _publicAddress
-              # } if _privateAddress or _publicAddress else Undefined,
+              status.log = helper._append_init_scripts([_defaultUserData])
             }
 
             items = [*_items, dxr]
