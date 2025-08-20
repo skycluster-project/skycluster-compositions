@@ -218,7 +218,7 @@ _items += [k8sv1a2.Object{
 _sshSecretName = ocds?["secRemoteSSH"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
 _provCfgGate = all_true([_sshSecretName, _providerK8SCfgName])
 _items += [k8sv1a2.Object{
-  "metadata": {
+  "metadata" = {
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("sshProviderConfig"),
@@ -235,16 +235,16 @@ _items += [k8sv1a2.Object{
     }]
     forProvider = {
       manifest = {
-        apiVersion: "ssh.crossplane.io/v1alpha1",
-        kind: "ProviderConfig",
-        metadata: {
-          name: "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
-          namespace: _ns,
-          labels: _default_labels,
-          annotations: _default_annotations,
+        apiVersion = "ssh.crossplane.io/v1alpha1",
+        kind = "ProviderConfig",
+        metadata = {
+          name = "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
+          namespace = _ns,
+          labels = _default_labels,
+          annotations = _default_annotations,
         },
-        spec: {
-          credentials: {
+        spec = {
+          credentials = {
             source = "Secret"
             secretRef = {
               name = _sshSecretName
