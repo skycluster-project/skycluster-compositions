@@ -436,6 +436,7 @@ spec:
                   labels = _default_labels
                   annotations = _default_annotations | {
                     **helper._set_resource_name(cv.providerConfigs?.k8s?.generate),
+                    "krm.kcl.dev/ready" = "True"
                   },
                 },
                 spec = {
@@ -614,36 +615,20 @@ spec:
             dxr = {
               **option("params").dxr,
               status = {
-                # controllers = [
-                #   {
-                #     if cv.sshGate: 
-                #       network = {
-                #         privateIp = cv.privateIp or Undefined
-                #         publicIp = cv.publicIp or Undefined
-                #       }
-                #     secretName = cv.secretNameObserved
-                #     controllerName = cv.controllerName
-                #   } for c, cv in _ctrlObjData 
-                # ]
-                # agents = [
-                #   {
-                #     if v.sshGate:
-                #       providerConfigs = {
-                #         ssh = {
-                #           name = v.sshProviderCfg
-                #         }
-                #       }
-                #       network = {
-                #         privateIp = v.privateIp
-                #         publicIp = v.publicIp
-                #       }
-                #     agentName = v.agentName
-                #   } for k, v in _agentObjData
-                # ]
-                log = json.encode({
-                  ctrlObject = _ctrlObjData
-                  agObject = _agentObjData
-                })
+                controllers = [
+                  {
+                    k = v for id, obj in _ctrlObjData for k, v in obj if k not in ["token", "kubeconfig_encoded"]
+                  }
+                ]
+                agents = [
+                  {
+                    k = v for id, obj in _agentObjData for k, v in obj
+                  } 
+                ]
+                # log = json.encode({
+                #   ctrlObject = _ctrlObjData
+                #   agObject = _agentObjData
+                # })
               }
             }
 

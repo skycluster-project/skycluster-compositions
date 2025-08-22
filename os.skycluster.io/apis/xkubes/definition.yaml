@@ -64,47 +64,105 @@ spec:
               agents:
                 items:
                   properties:
-                    agentName:
-                      type: string
-                    network:
+                    agent:
                       properties:
-                        privateIp:
+                        generate:
                           type: string
-                        publicIp:
+                        observed:
                           type: string
                       type: object
+                    id:
+                      type: string
+                    instanceType:
+                      type: string
+                    nodeGroupHash:
+                      type: string
+                    privateIp:
+                      type: string
                     providerConfigs:
                       properties:
                         ssh:
                           properties:
-                            name:
+                            observed:
                               type: string
                           type: object
                       type: object
+                    publicAccess:
+                      type: boolean
+                    publicIp:
+                      type: string
+                    role:
+                      type: string
+                    ssh:
+                      properties:
+                        generate:
+                          type: string
+                        observed:
+                          type: string
+                      type: object
+                    sshGate:
+                      type: boolean
                   type: object
                 type: array
               controllers:
                 items:
                   properties:
-                    controllerName:
-                      type: string
-                    network:
+                    controller:
                       properties:
-                        privateIp:
+                        generate:
                           type: string
-                        publicIp:
+                        observed:
                           type: string
                       type: object
+                    id:
+                      type: string
+                    instanceType:
+                      type: string
+                    nodeGroupHash:
+                      type: string
+                    privateIp:
+                      type: string
+                    providerCfgGate:
+                      type: boolean
                     providerConfigs:
                       properties:
+                        k8s:
+                          properties:
+                            generate:
+                              type: string
+                            observed:
+                              type: string
+                          type: object
                         ssh:
                           properties:
-                            name:
+                            observed:
                               type: string
                           type: object
                       type: object
-                    secretName:
+                    publicAccess:
+                      type: boolean
+                    publicIp:
                       type: string
+                    role:
+                      type: string
+                    secret:
+                      properties:
+                        generate:
+                          type: string
+                        observed:
+                          type: string
+                      type: object
+                    secretGate:
+                      type: boolean
+                    ssh:
+                      properties:
+                        generate:
+                          type: string
+                        observed:
+                          type: string
+                      type: object
+                    sshGate:
+                      type: boolean
                   type: object
                 type: array
               log:
