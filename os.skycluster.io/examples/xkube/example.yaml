@@ -36,11 +36,28 @@ spec:
     # name: example-provider
 status:
   log: "This is a placeholder for the status field"
-  kubeconfig: "base64 kubeconfig"
-  token: "token"
-  controller:
-    - privateIp: "ip"
-      publicIp: "ip"
+  controllers:
+    - network:
+        privateIp: "ip"
+        publicIp: "ip"
+      secretName: "secret"
+      controllerName: "controller"
+      providerConfigs: 
+        ssh:
+          name: "example"
+  agents:
+    - providerConfigs: 
+        ssh:
+          name: "example"
+      agentName: "agent"
+      network: 
+        privateIp: "ip"
+        publicIp: "ip"
+  # kubeconfig: "base64 kubeconfig"
+  # token: "token"
+  # controller:
+  #   - privateIp: "ip"
+  #     publicIp: "ip"
   # providerConfig:
   #   kubernetes:
   #     name: "example"

@@ -1,3 +1,4 @@
+import json
 import helper.v1alpha1.main as helper
 
 oxr = option("params").oxr # observed composite resource
@@ -229,4 +230,49 @@ _items += [{
 }] if _oxrProvPlatform == "openstack" else []
 
 
-items = _items
+
+_token = ocds?["xk8s"]?.Resource?.status?.token
+_kubeconfig = ocds?["xk8s"]?.Resource?.status?.kubeconfig
+_controllers = ocds?["xk8s"]?.Resource?.status?.controller
+
+
+# Create a ProviderConfig for both Kubernetes and helm
+# The kubeconfig is already stored in a secret by xkube object
+
+secret = {
+  apiVersion = "v1"
+  kind = "Secret"
+  metadata = {
+    name = "xkube-secret"
+    namespace = "default"
+  }
+  data = {
+    token = _token
+    kubeconfig = _kubeconfig
+  }
+}
+
+# ###################### dxr ######################
+
+dxr = {
+  **option("params").dxr,
+  status = {
+    if _kubeconfig:
+      kubeconfig = _kubeconfig
+    if _token:
+      token = _token
+    if _controllers:
+      controller = [{
+          privateIp = s.privateIp or Undefined
+          publicIp = s.publicIp or Undefined
+        } for s in _controllers
+      ]
+    # log = json.encode({
+    #   token = _token or "NA"
+    #   kubeconfig = _kubeconfig or "NA"
+    #   controllers = [_c.privateIp for _c in _controllers] or "NA"
+    # })
+  }
+}
+
+items = [*_items, dxr]

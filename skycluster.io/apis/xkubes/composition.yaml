@@ -70,6 +70,7 @@ spec:
           dependencies: |
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
           source: |-
+            import json
             import helper.v1alpha1.main as helper
 
             oxr = option("params").oxr # observed composite resource
@@ -301,7 +302,35 @@ spec:
             }] if _oxrProvPlatform == "openstack" else []
 
 
-            items = _items
+            # ###################### dxr ######################
+
+            _token = ocds?["xk8s"]?.Resource?.status?.token
+            _kubeconfig = ocds?["xk8s"]?.Resource?.status?.kubeconfig
+            _controllers = ocds?["xk8s"]?.Resource?.status?.controller
+
+
+            dxr = {
+              **option("params").dxr,
+              status = {
+                if _kubeconfig:
+                  kubeconfig = _kubeconfig
+                if _token:
+                  token = _token
+                if _controllers:
+                  controller = [{
+                      privateIp = s.privateIp or Undefined
+                      publicIp = s.publicIp or Undefined
+                    } for s in _controllers
+                  ]
+                # log = json.encode({
+                #   token = _token or "NA"
+                #   kubeconfig = _kubeconfig or "NA"
+                #   controllers = [_c.privateIp for _c in _controllers] or "NA"
+                # })
+              }
+            }
+
+            items = [*_items, dxr]
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready

@@ -106,14 +106,28 @@ spec:
             provider-kubernetes = { git = "https://github.com/skycluster-project/kcl-modules", version = "0.0.1" }
             provider-helm = { git = "https://github.com/skycluster-project/kcl-modules", version = "0.0.1" }
             provider-openstack = { git = "https://github.com/skycluster-project/kcl-modules", version = "0.0.1" }
-          source: |2-
+          source: |-
+            #
+            # XKube object creates an un-managed Kubernetes cluster.
+            # 
+            # List of objects:
+            #  - XKube
+            #    Controllers:
+            #    - XInstance
+            #      Secret (k3s)
+            #      SSHTask (fetch k3s token)
+            #    Agents:
+            #    - XInstance
+            #      SSHTask (ensure joining k3s controller)
+
 
             import yaml
             import base64
-            import crypto
             import json
+            import crypto
             import helper.v1alpha1.main as helper
             import provider_kubernetes.v1alpha2 as k8sv1a2
+            import provider_kubernetes.v1alpha1 as k8sv1a1
 
             oxr = option("params").oxr # observed composite resource
             ocds = option("params")?.ocds # observed composed resources
@@ -149,7 +163,7 @@ spec:
             assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
               "Provider region, primary zone, platform must be specified"
 
-            _k8sProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
+            _skyK8SProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
 
             _defaults = {
               providerConfigRef = {
@@ -180,7 +194,7 @@ spec:
               _selected[0]
             }
 
-            _merge = lambda ll, new_ll {ll | new_ll}
+            _merge = lambda map1, map2 {map1 | map2}
             _replace: (str, str, str, str) -> str = lambda s:str, p:str, r:str, z:str {
               s.replace("__PROVIDERPLATFORM__", p)\
                 .replace("__REGION__", r)\
@@ -215,46 +229,84 @@ spec:
 
             _items = []
 
-            _ctrlNodeGrp = [n for n in oxr.spec.nodeGroups if n and n.role == "control-plane" ]
-            _maxNodeCount = 1
-            _maxNodeGrpCount = 1
 
-            # ng<hash>c<I> = {
-            #   nodeGrpHash = <hash>
-            #   count = <I>
-            #   <additional map str:str>
-            # }
-            _ctrlObjData = {
-              "ng{}c{}".format(crypto.md5(str(ng)), j): {
-                nodeGrpHash = crypto.md5(str(ng))
-                count = str(j)
-              } for i, ng in _ctrlNodeGrp[:_maxNodeGrpCount] \
-                  for j in range(0, min(_maxNodeCount, ng.nodeCount))
+            # <hash> = ng
+            _ctrlNodeGroup = {
+              crypto.md5( "{}{}{}".format(ng.role, ng.instanceType, ng.publicAccess)) = ng \
+                for ng in oxr.spec.nodeGroups if ng and ng.role == "control-plane"
             }
+            _maxNodeCount = 1
+            assert len(_ctrlNodeGroup) == 1, "Exactly one control-plane node group is supported, found {}".format(len(_ctrlNodeGroup))
+
+            # Ensure only one node group and only one node is defined as controller
+            # We may expand this in future release to support mult-controller Kubernetes
+            _ctrlNode = [nc for _, nc in _ctrlNodeGroup]?[0] or Undefined
+            _ctrlPublicAccess = _ctrlNode?.publicAccess or False
+            _ctrlNodeCount = _ctrlNode?.nodeCount
+            assert _ctrlNodeCount == 1, "Only support one controller node per group in this version, found {}".format(len(_ctrlNodeGroup))
+            assert _ctrlPublicAccess, "Control plane node must be publicly accessible, found publicAccess: {}".format(_ctrlPublicAccess)
+
+            # ct<hash>I<id> = ctrlObjData
+            _ctrlObjDataBase = {
+              "ct{}I{}".format(k, j): {
+                nodeGroupHash = k
+                id = str(j)
+                role = ng.role,
+                instanceType = ng.instanceType,
+                publicAccess =  ng.publicAccess
+              } for k, ng in _ctrlNodeGroup for j in range(0, min(_maxNodeCount, ng.nodeCount))
+            }
+
             # Add additional map str:str
             _ctrlObjData = {
               k = _merge(
-                v, 
+                v,
                 {
-                  sshProviderCfg = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
-                  sshTaskName = "st{}c{}".format(v.nodeGrpHash, v.count)
+                  controller = { # xinstance
+                    generate = k
+                    observed = ocds?[k]?.Resource?.metadata?.name
+                  }
+                  ssh = { # sshtask: install k3s
+                    generate = "st{}I{}".format(v.nodeGroupHash, v.id)
+                    observed = ocds?[generate]?.Resource?.metadata?.name
+                  }
+                  secret = { # secret (object) containing kubeconfig
+                    generate = "sc{}I{}".format(v.nodeGroupHash, v.id)
+                    observed = ocds?[generate]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+                  }
+                  providerConfigs = { # provider config for ctrl xinstance
+                    k8s = { # k3s provider config
+                      generate = "pc{}I{}".format(v.nodeGroupHash, v.id)
+                      observed = ocds?[generate]?.Resource?.metadata?.name
+                    }
+                    ssh = { # providerconfig for ssh (comes from XInstance)
+                      observed = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
+                    }  
+                  }
+
+                  # Comes from sshtask
+                  token = ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.token
+                  kubeconfig_encoded = ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
+
+                  # Comes from xinstance
+                  privateIp = ocds?[k]?.Resource?.status?.network?.privateIp
+                  publicIp = ocds?[k]?.Resource?.status?.network?.publicIp
+                  
                   sshGate = all_true([
                     _agentProbeScript, 
                     _agentEnsureScript, 
-                    ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
+                    providerConfigs?.ssh?.observed # defined above
                   ])
-                  token = ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token
-                  kubeconfig_encoded = ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
-                  privateIp = ocds?[k]?.Resource?.status?.network?.privateIp
-                  publicIp = ocds?[k]?.Resource?.status?.network?.publicIp
-                  secretName = "sc{}c{}".format(v.nodeGrpHash, v.count)
                   secretGate = all_true([
-                    ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.token,
-                    ocds?["st{}c{}".format(v.nodeGrpHash, v.count)]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig,
+                    ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.token,
+                    ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig,
                     ocds?[k]?.Resource?.status?.network?.privateIp
                   ])
+                  providerCfgGate = all_true([
+                    len(ocds?[secret?.generate]?.Resource?.status?.atProvider?.manifest?.data or []) > 0,
+                  ])
                 }
-              ) for k, v in _ctrlObjData
+              ) for k, v in _ctrlObjDataBase
             }
 
 
@@ -272,15 +324,15 @@ spec:
                   annotations = _default_annotations | {
                     # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
                     # changed, the resource is re-created subsequently
-                    **helper._set_resource_name("ng{}c{}".format(crypto.md5(str(ng)), j)),
+                    **helper._set_resource_name(k),
                   },
                 },
                 "spec" = {
                   "applicationId" = _oxrAppId,
                   "ipForwarding" = True,
                   "image" = "ubuntu-24.04",
-                  "flavor" = ng.instanceType,
-                  "publicIp" = True,
+                  "flavor" = c.instanceType,
+                  "publicIp" = True, # controller need to be accessible
                   "providerRef" = {
                     "platform" = _oxrProvPlatform,
                     "region" = _oxrProvRegion,
@@ -288,12 +340,11 @@ spec:
                   },
                   "userData" = _userDataCtrl
                 }
-              } for i, ng in _ctrlNodeGrp[:_maxNodeGrpCount] \
-                  for j in range(0, min(_maxNodeCount, ng.nodeCount))
-            ] if _ctrlNodeGrp else []
+              } for k, c in _ctrlObjData 
+            ]
 
 
-            # ctrl ssh connection sshtask
+            # Controller ssh connection sshtask, it install k3s
             # Multi controller is not yet supported
             _items += [
               {
@@ -302,11 +353,11 @@ spec:
                 metadata = {
                   labels = _default_labels
                   annotations = _default_annotations | {
-                    **helper._set_resource_name(cv.sshTaskName),
+                    **helper._set_resource_name(cv.ssh?.generate),
                   },
                 },
                 spec = {
-                  providerConfigRef.name = cv.sshProviderCfg
+                  providerConfigRef.name = cv.providerConfigs?.ssh?.observed
                   forProvider = {
                     scripts = {
                       probeScript.inline = _k3sCtrlScript?["probeScript"]
@@ -336,11 +387,11 @@ spec:
                     artifactPolicy.capture = "both"    
                   }
                 }
-              } for c, cv in _ctrlObjData if cv.sshGate
+              } for c, cv in _ctrlObjData if cv.sshGate or ocds?[cv.ssh?.generate]
             ]
 
 
-            # ctrl ssh connection secret
+            # Controller ssh connection secret, it saves a secret containing k3s token and kubeconfig
             # Multi controller is not yet supported
             _items += [
               k8sv1a2.Object{
@@ -349,7 +400,7 @@ spec:
                   annotations = _default_annotations | {
                     # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
                     # changed, the resource is re-created subsequently
-                    **helper._set_resource_name(cv.secretName),
+                    **helper._set_resource_name(cv.secret?.generate),
                   },
                 },
                 spec = {
@@ -361,67 +412,116 @@ spec:
                         name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.privateIp),
                         namespace = _ns,
                         labels = _default_labels | {
-                          "skycluster.io/secret-type" = "k3s-connection-data"
+                          "skycluster.io/secret-type" = "k8s-connection-data",
                         },
                         annotations = _default_annotations,
                       },
-                      spec = {
-                        "type" = "Opaque",
-                        data = {
-                          "kubeconfig" = cv.kubeconfig_encoded,
-                          "token" = base64.encode(cv.token)
-                        }
+                      "type" = "Opaque",
+                      data = {
+                        "kubeconfig" = cv.kubeconfig_encoded,
+                        "token" = base64.encode(cv.token)
                       }
                     },
                   },
-                  providerConfigRef.name = _k8sProviderCfgName
+                  providerConfigRef.name = _skyK8SProviderCfgName
                 }
-              } for c, cv in _ctrlObjData if cv.secretGate
+              } for c, cv in _ctrlObjData if cv.secretGate or ocds?[cv.secret?.generate]
+            ]
+
+            # Controller Kubernetes provider config connection 
+            # Multi controller is not yet supported
+            _items += [
+              k8sv1a1.ProviderConfig{
+                metadata = {
+                  labels = _default_labels
+                  annotations = _default_annotations | {
+                    **helper._set_resource_name(cv.providerConfigs?.k8s?.generate),
+                  },
+                },
+                spec = {
+                  credentials = {
+                    source = "Secret"
+                    secretRef = {
+                      namespace = _ns
+                      name = cv?.secret?.observed
+                      key = "kubeconfig"
+                    }
+                  }
+                }
+              } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.k8s?.generate]
             ]
 
 
 
-            # ###################### Agents ######################
+            # ###################### Note ######################
 
             # There may be multiple controller, however, we only support single controller
             # This means we use one IP and Token corresponding to one controller, even 
             # if user has specified multiple node groups for controller with node count > 1
 
-            _ctrlIp = [v.privateIp for k, v in _ctrlObjData][0]
-            _ctrlIpPublic = [v.publicIp for k, v in _ctrlObjData][0]
-            _ctrlToken = [v.token for k, v in _ctrlObjData][0]
-            _ctrlKubeconfig_enc = [v.kubeconfig_encoded for k, v in _ctrlObjData][0]
+            # In the output (status) fieds, we offer all controllers information.
 
-            _agentNodeGroups = [n for n in oxr.spec.nodeGroups if n and n.role == "worker" ]
+            # ###################### Agents ######################
 
-            _agentObjData = {
-              "ng{}c{}".format(crypto.md5(str(ng)), j): {
-                nodeGrpHash = crypto.md5(str(ng))
-                count = str(j)
-                publicAccess = ng.publicAccess
-                instanceType = ng.instanceType
-              } for i, ng in _agentNodeGroups for j in range(0, ng.nodeCount)
+            _ctrlIp = [v.privateIp for _, v in _ctrlObjData][0]
+            _ctrlIpPublic = [v.publicIp for _, v in _ctrlObjData][0]
+            _ctrlToken = [v.token for _, v in _ctrlObjData][0]
+            _ctrlKubeconfig_enc = [v.kubeconfig_encoded for _, v in _ctrlObjData][0]
+
+
+            _agNodeGroup = {
+              crypto.md5( "{}{}{}".format(ng.role, ng.instanceType, ng.publicAccess)) = ng \
+                for ng in oxr.spec.nodeGroups if ng and ng.role == "worker"
             }
+
+            # ct<hash>I<id> = ctrlObjData
+            _agObjDataBase = {
+              "ag{}I{}".format(k, j): {
+                nodeGroupHash = k
+                id = str(j)
+                role = ng.role,
+                instanceType = ng.instanceType,
+                publicAccess =  ng.publicAccess
+              } for k, ng in _agNodeGroup for j in range(0, ng.nodeCount)
+            }
+
+
             # Add additional map str:str
             _agentObjData = {
               k = _merge(
                 v, 
                 {
-                  sshProviderCfg = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
-                  sshTaskName = "st{}c{}".format(v.nodeGrpHash, v.count)
+                  agent = { # xInstance: agent joining controller
+                    generate = k
+                    observed = ocds?[k]?.Resource?.metadata?.name
+                  }
+                  providerConfigs = { # provider configs for agent node
+                    ssh = { # sshtask provider
+                      observed = ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name
+                    }
+                  }
+                  ssh = { # sshtask: joining k3s
+                    generate = "st{}I{}".format(v.nodeGroupHash, v.id)
+                    observed = ocds?[generate]?.Resource?.metadata?.name
+                  }
+                  
                   sshGate = all_true([
                     _ctrlToken,
                     _ctrlIp,
                     ocds?[k]?.Resource?.status?.providerConfig?.kubernetes?.name,
                     ocds?[k]?.Resource?.status?.network?.privateIp
                   ])
+
+                  # k refers to agent (xInstance)
                   privateIp = ocds?[k]?.Resource?.status?.network?.privateIp
                   publicIp = ocds?[k]?.Resource?.status?.network?.publicIp
                 }
-              ) for k, v in _agentObjData
+              ) for k, v in _agObjDataBase
             }
 
-            # Agent xinstance(s)
+            #
+            # Agent xInstance(s)
+            #
             _items += [
               {
                 "apiVersion" = "skycluster.io/v1alpha1",
@@ -446,7 +546,7 @@ spec:
                     "zone" = _oxrProvZone
                   },
                 }
-              } for k, v in _agentObjData
+              } for k, v in _agentObjData if v or ocds?[k]
             ]
 
 
@@ -458,11 +558,11 @@ spec:
                 metadata = {
                   labels = _default_labels
                   annotations = _default_annotations | {
-                    **helper._set_resource_name(v.sshTaskName),
+                    **helper._set_resource_name(v.ssh?.generate),
                   },
                 },
                 spec = {
-                  providerConfigRef.name = v.sshProviderCfg
+                  providerConfigRef.name = v.providerConfigs?.ssh?.observed
                   forProvider = {
                     scripts = {
                       # TODO: change with agent script
@@ -504,7 +604,7 @@ spec:
                     artifactPolicy.capture = "both"    
                   }
                 }
-              } for k, v in _agentObjData if v.sshGate
+              } for k, v in _agentObjData if v.sshGate or ocds?[v.ssh?.generate]
             ] 
 
 
@@ -514,25 +614,36 @@ spec:
             dxr = {
               **option("params").dxr,
               status = {
-                if _ctrlKubeconfig_enc:
-                  kubeconfig = _ctrlKubeconfig_enc
-                if _ctrlToken:
-                  token = _ctrlToken
-                if _ctrlIp or _ctrlIpPublic:
-                  controller = [{
-                    privateIp = _ctrlIp or Undefined
-                    publicIp = _ctrlIpPublic or Undefined
-                  }]
-                # if _k8sProviderCfgName:
-                #   providerConfig = {
-                #     kubernetes.name = _k8sProviderCfgName
-                #   }
-                # log = json.encode({
-                #   "__K3STOKEN__" = _ctrlToken
-                #   "__K3SHOSTIP__" = _ctrlIp
-                #   ctrl = _ctrlObjData
-                #   agents = _agentObjData
-                # })
+                # controllers = [
+                #   {
+                #     if cv.sshGate: 
+                #       network = {
+                #         privateIp = cv.privateIp or Undefined
+                #         publicIp = cv.publicIp or Undefined
+                #       }
+                #     secretName = cv.secretNameObserved
+                #     controllerName = cv.controllerName
+                #   } for c, cv in _ctrlObjData 
+                # ]
+                # agents = [
+                #   {
+                #     if v.sshGate:
+                #       providerConfigs = {
+                #         ssh = {
+                #           name = v.sshProviderCfg
+                #         }
+                #       }
+                #       network = {
+                #         privateIp = v.privateIp
+                #         publicIp = v.publicIp
+                #       }
+                #     agentName = v.agentName
+                #   } for k, v in _agentObjData
+                # ]
+                log = json.encode({
+                  ctrlObject = _ctrlObjData
+                  agObject = _agentObjData
+                })
               }
             }
 

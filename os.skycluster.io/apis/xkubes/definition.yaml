@@ -61,20 +61,53 @@ spec:
           status:
             description: XKubeStatus defines the observed state of XKube.
             properties:
-              controller:
+              agents:
                 items:
                   properties:
-                    privateIp:
+                    agentName:
                       type: string
-                    publicIp:
+                    network:
+                      properties:
+                        privateIp:
+                          type: string
+                        publicIp:
+                          type: string
+                      type: object
+                    providerConfigs:
+                      properties:
+                        ssh:
+                          properties:
+                            name:
+                              type: string
+                          type: object
+                      type: object
+                  type: object
+                type: array
+              controllers:
+                items:
+                  properties:
+                    controllerName:
+                      type: string
+                    network:
+                      properties:
+                        privateIp:
+                          type: string
+                        publicIp:
+                          type: string
+                      type: object
+                    providerConfigs:
+                      properties:
+                        ssh:
+                          properties:
+                            name:
+                              type: string
+                          type: object
+                      type: object
+                    secretName:
                       type: string
                   type: object
                 type: array
-              kubeconfig:
-                type: string
               log:
-                type: string
-              token:
                 type: string
             type: object
         required:

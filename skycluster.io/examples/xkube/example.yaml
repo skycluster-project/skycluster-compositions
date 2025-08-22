@@ -46,4 +46,9 @@ spec:
       secondary: us-east-1b
 status:
   log: "log"
+  kubeconfig: "kubeconfig"
+  token: "token"
+  controller:
+    - privateIp: "privateIp"
+      publicIp: "publicIp"
 
