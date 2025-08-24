@@ -41,6 +41,9 @@ _vpcCidrSecond = _vpcCidrOctets[1]
 _vpcCidrThird = _vpcCidrOctets[2]
 _vpcCidrMask = _vpcCidrParts[1]
 
+# ProjectV2
+# NetworkV2 and SubnetV2 [external network only]
+# RouterV2
 
 # Labels can contains a reference to an external resource, 
 # the value must be a valid JSON string, example:
@@ -83,6 +86,9 @@ _default_annotations = {
 
 _items = []
 
+#
+# Project
+#
 _items += [opv1a1.ProjectV3{
   "metadata": {
     labels = _default_labels 
@@ -100,75 +106,78 @@ _items += [opv1a1.ProjectV3{
   } | _management_policy(_oxrAnnotations, "identity.openstack.crossplane.io/v1alpha1", "ProjectV3")
 }]
 
+#
+# Network for private subnets
+#
 _items += [opv1a1.NetworkV2{
   "metadata": {
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("network"),
-      **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "NetworkV2")
     },
   },
-  spec = _defaults {
+  spec = _defaults | {
     forProvider = {
       region = _oxrProvRegion
       name = oxr.metadata.name
       portSecurityEnabled: True
       external: False
     }
-  } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "NetworkV2")
+  } 
 }]
 
-# First public subnet should sufficient for our case
-_publicSubnet = [v for k, v in ocds if "subnetPublic" in k]?[0] or Undefined
-_extNetworkId = _publicSubnet?.Resource?.status?.atProvider?.networkId or Undefined
+#
+# If the external network is set we import it.
 # This is external network, associated with the public subnet
+#
 _items += [opv1a1.NetworkV2{
   "metadata": {
     labels = _default_labels
     annotations = _default_annotations | {
-      **helper._set_resource_name("extNetworkRef"),
-      "crossplane.io/external-name": _extNetworkId,
+      **helper._set_resource_name("extNetwork"),
+      if oxr.spec?.externalNetwork?.networkId:
+        "crossplane.io/external-name": oxr.spec?.externalNetwork?.networkId
+      else:
+        **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "NetworkV2")
     },
   },
-  spec = _defaults  | {
-    forProvider = {
-      region = _oxrProvRegion
-      name = oxr.metadata.name
-      portSecurityEnabled: True
-      external: False
-    },
+  spec = _defaults | {
+    forProvider = {}
     managementPolicies = ["Observe"]
   },
-}] if _extNetworkId or ocds?["extNetwork"] else []
+}]
 
 
+#
+# User subnets preparation, they all are private subnets
+#
 _subnets = []
 _subnets +=  [{
-  "type" = sub.type, # not relevant for GCP
   "zone" = sub.zone,
   "gatewayIp" = sub.gatewayIp,
+  "cidr" = sub.cidr
   if sub.default:
     "default" = True
-    # Whole VPC CIDR 
-    "primaryCidrBlock" = sub.cidr
-    # second half of the VPC CIDR
-    "podCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 1, 1) 
-    "serviceCidrBlock" = "172.16.0.0/16"
   else:
     "default" = False
+  #   # Whole VPC CIDR 
+  #   "primaryCidrBlock" = sub.cidr
+  #   # second half of the VPC CIDR
+  #   "podCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 1, 1) 
+  #   "serviceCidrBlock" = "172.16.0.0/16"
 } for i, sub in oxr.spec.subnets]
 
+#
+# User Subnet objects
+#
 _items += [opv1a1.SubnetV2{
   "metadata": {
     labels = _default_labels | {
-      if s.default: "skycluster.io/default-subnet" = "true"
-      if s.type == "public": "skycluster.io/public-subnet" = "true"
       "skycluster.io/subnet-id" = "subnet-{}".format(i)
+      "skycluster.io/default-subnet" = "true" if s.default else "false"
     }
     annotations = _default_annotations | {
-      **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
-      if s.type == "public":
-        **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SubnetV2")
+      **helper._set_resource_name("subnetPrivate{}".format(i)),
     },
   },
   spec = {
@@ -176,16 +185,36 @@ _items += [opv1a1.SubnetV2{
     forProvider = {
       name = oxr.metadata.name
       region = _oxrProvRegion
-      cidr = s.primaryCidrBlock
+      cidr = s.cidr
       gatewayIp = s.gatewayIp
       dnsNameservers: ["8.8.8.8", "8.8.4.4"]
-      networkIdSelector .matchControllerRef = True
+      networkIdSelector.matchControllerRef = True
     },
-    # only allow external objects for default subnet or first public subnet
-    if s.type == "public":
-      **_management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SubnetV2")
   }
 } for i, s in _subnets]
+
+#
+# External subnet, user must set the name and ID
+#
+_items += [opv1a1.SubnetV2{
+  "metadata": {
+    labels = _default_labels | {
+      "skycluster.io/public-subnet" = "true"
+    }
+    annotations = _default_annotations | {
+      **helper._set_resource_name("extSubnet"),
+      if oxr.spec?.externalNetwork?.subnetId:
+        "crossplane.io/external-name": oxr.spec?.externalNetwork?.subnetId
+      else:
+        **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SubnetV2")
+    },
+  },
+  spec = _defaults | {
+    forProvider = {}
+    managementPolicies = ["Observe"]
+  }
+}]
+
 
 _items += [opv1a1.RouterV2{
   "metadata": {
@@ -209,7 +238,6 @@ _items += [opv1a1.RouterInterfaceV2{
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("routerInterface{}".format(i)),
-      # **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "RouterInterfaceV2")
     },
   },
   spec = _defaults | {
@@ -220,7 +248,7 @@ _items += [opv1a1.RouterInterfaceV2{
         "skycluster.io/subnet-id" = "subnet-{}".format(i)
       }
     }
-  } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "RouterInterfaceV2")
+  }
 } for i, s in _subnets if s.type != "public"]
 
 
@@ -229,7 +257,6 @@ _items += [opv1a1.SecgroupV2{
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("secgroup"),
-      **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SecgroupV2")
     },
   },
   spec = _defaults | {
@@ -238,7 +265,7 @@ _items += [opv1a1.SecgroupV2{
       name = oxr.metadata.name
       description = "Security group for {}".format(oxr.metadata.name)
     }
-  } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SecgroupV2")
+  }
 }]
 
 
@@ -317,7 +344,6 @@ _items += [opv1a1.KeypairV2{
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("keypair"),
-      **_external_resources(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "KeypairV2")
     },
   },
   spec = _defaults | {
@@ -326,14 +352,14 @@ _items += [opv1a1.KeypairV2{
       name = oxr.metadata.name
       publicKey = oxr.spec.publicKey
     }
-  } | _management_policy(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "KeypairV2")
+  }
 }]
+
 _items += [opv1a1.PortV2{
   "metadata": {
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("port"),
-      **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "PortV2")
     },
   },
   spec = _defaults | {
@@ -346,21 +372,18 @@ _items += [opv1a1.PortV2{
         }
       }]
     }
-  } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "PortV2")
+  }
 }]
 
 _portId = ocds?.port?.Resource?.status?.atProvider?.id
 _userData = oxr.spec.gateway?.userData 
 _userData = _userData.replace("__SUBNETCIDR__", _vpcCidr) if _userData else Undefined
-# __POD_SUBNET_CIDR__
-# __AS_NUMBER__
 
 _items += [opv1a1.InstanceV2{
   "metadata": {
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("instance"),
-      **_external_resources(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "InstanceV2")
     },
   },
   spec = _defaults | {
@@ -374,12 +397,12 @@ _items += [opv1a1.InstanceV2{
       # We should handle security controls within iptables inside the host
       userData = _userData
     }
-  } | _management_policy(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "InstanceV2")
+  }
 }] if _portId or ocds["instance"] else []
 
 
 # Just get the first IP of the available public subnet
-_extNetworkName = ocds["extNetworkRef"]?.Resource?.status?.atProvider?.name or Undefined
+_extNetworkName = ocds["extNetwork"]?.Resource?.status?.atProvider?.name or Undefined
 
 _items += [opv1a1.FloatingipV2{
   "metadata": {
@@ -406,7 +429,6 @@ _items += [opv1a1.FloatingipAssociateV2{
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("floatingipAssociate"),
-      **_external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "FloatingipAssociateV2")
     },
   },
   spec = _defaults | {
@@ -416,9 +438,8 @@ _items += [opv1a1.FloatingipAssociateV2{
       floatingIp = _floatingIp
       portId = _portId
     }
-  } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "FloatingipAssociateV2")
+  }
 }] if (_portId and _floatingIp and _instanceIp) or ocds?["floatingipAssociate"] else []
-
 
 
 _keypairId = ocds?["keypair"]?.Resource?.status?.atProvider?.id
@@ -430,32 +451,42 @@ _defaultSecGroup = ocds?["secgroup"]?.Resource?.status?.atProvider?.id
 
 dxr = {
   **option("params").dxr,
+  
   if _vpcId:
     status.vpc = {
       id = _vpcId
       cidrBlock = _vpcCidr 
     } 
+  
   if _defaultSecGroup:
     status.securityGroup = {
       id = _defaultSecGroup
     } 
-  if _extNetworkId and _extNetworkName:
-    status.subnets = [
-      {
-        type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
-        id = v.status?.atProvider?.id
-        networkId = v.status?.atProvider?.networkId
-        networkName = _extNetworkName if v.status?.atProvider?.networkId == _extNetworkId else Undefined
-        gatewayIp= v.status?.atProvider?.gatewayIp
-        cidrBlock = v.status?.atProvider?.cidrBlock
-      } for _, v in _ocdsSubnets if v
-    ]
+  
+  if oxr.spec?.externalNetwork:
+    status.externalNetwork = {
+      networkName = ocds?["extNetwork"]?.Resource?.status?.atProvider?.name
+      networkId = ocds?["extNetwork"]?.Resource?.status?.atProvider?.id
+      subnetName = ocds?["extSubnet"]?.Resource?.status?.atProvider?.name
+      subnetId = ocds?["extSubnet"]?.Resource?.status?.atProvider?.id
+    }
+  status.subnets = [
+    {
+      id = v.status?.atProvider?.id
+      networkId = v.status?.atProvider?.networkId
+      # networkName = _extNetworkName if v.status?.atProvider?.networkId == _extNetworkId else Undefined
+      gatewayIp= v.status?.atProvider?.gatewayIp
+      cidrBlock = v.status?.atProvider?.cidrBlock
+    } for _, v in _ocdsSubnets if v
+  ]
+
   if _keypairId:
     status.keypair = {
       id = _keypairId
       name = _keypairName
       publicKey = _publicKey
     }
+  
   if _floatingIp or _instanceIp:
     status.gateway = {
       publicIp = _floatingIp

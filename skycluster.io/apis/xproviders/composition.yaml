@@ -71,7 +71,6 @@ spec:
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
           source: |-
             import helper.v1alpha1.main as helper
-            import helper.v1alpha1.aws as helper_aws
 
 
             oxr = option("params").oxr # observed composite resource
@@ -230,6 +229,8 @@ spec:
                     # volumeType = oxr.spec?.gateway?.volumeType or "pd-standard"
                     # volumeSize = oxr.spec?.gateway?.volumeSize or 20
                   }
+                  if oxr.spec?.externalNetwork:
+                    externalNetwork = oxr.spec?.externalNetwork
                   providerRef={
                     platform= _oxrProvPlatform
                     region= _oxrProvRegion

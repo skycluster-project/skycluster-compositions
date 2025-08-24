@@ -21,6 +21,17 @@ spec:
             properties:
               applicationId:
                 type: string
+              externalNetwork:
+                properties:
+                  networkId:
+                    type: string
+                  networkName:
+                    type: string
+                  subnetId:
+                    type: string
+                  subnetName:
+                    type: string
+                type: object
               gateway:
                 properties:
                   flavor:

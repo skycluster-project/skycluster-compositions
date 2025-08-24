@@ -157,6 +157,8 @@ _items += [
         # volumeType = oxr.spec?.gateway?.volumeType or "pd-standard"
         # volumeSize = oxr.spec?.gateway?.volumeSize or 20
       }
+      if oxr.spec?.externalNetwork:
+        externalNetwork = oxr.spec?.externalNetwork
       providerRef={
         platform= _oxrProvPlatform
         region= _oxrProvRegion

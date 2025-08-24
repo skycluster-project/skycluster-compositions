@@ -20,26 +20,44 @@ spec:
       #!/bin/bash
       echo "Initializing gateway..."
   # Subnet CIDRs should be within the VPC CIDR range
-  subnets:
-    - type: public
-      zone: a
+  # For Kubernetes cluster we create custom subnets 
+
+  # Note: public (external) networks must be imported and SkyCluster does not support creating them.
+  # This is due to SAVI testbed limitation which has a fixed external network
+  # and I didn't bother to implement the external network when it cannot be tested.
+  
+  # To introduce an external network,
+  externalNetwork:
+    networkName: ext-net 
+    networkId: ext-net-id # Required: networkId must be provided here 
+    # or as an external object annotations
+
+    subnetName: ext-subnet
+    subnetId: ext-subnet-id # Required: subnetId must be provided here 
+    # or as an external object annotations
+
+  subnets: # all private subnets
+  # The gateway machines will attached to the default subnet, one at least required
+    - zone: a
       cidr: 10.120.30.0/24
       gatewayIp: 10.120.30.1
-      default: true # only applicatable for GCP
-      # if default is true, the first half of the VPC CIDR will be used for pods, 
-      # the second half for services is divided into two quarters
-      # and the third quarter will be used for services.
-      # the fourth quarter will be used for other resources in the subnet.
-      # Take a look at the composition for more details.
+      default: true # [NA]
+      # type: private # [NA] public subnet is not supported.
+
   providerRef:
     platform: gcp
     region: us-east1
     zones: 
       primary: a
       secondary: b
-#     name: example-provider
+
 status:
   log: "Setup created successfully."
+  externalNetwork:
+    networkName: ext-net
+    networkId: ext-net-id 
+    subnetName: ext-subnet
+    subnetId: ext-subnet-id
   keypair:
     name: example-keypair
     id: example-keypair-id

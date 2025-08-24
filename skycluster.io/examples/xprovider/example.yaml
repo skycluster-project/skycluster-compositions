@@ -6,6 +6,16 @@ spec:
   applicationId: example-app
   # vpcCidr is the CIDR block for the VPC
   vpcCidr: 10.10.0.0/16
+  
+  # To use an external network,
+  externalNetwork:
+    networkName: ext-net
+    # networkId must be provided here or as an external object annotations
+    networkId: ext-net-id 
+    subnetName: ext-subnet
+    # subnetId must be provided here or as an external object annotations
+    subnetId: ext-subnet-id
+
   # Subnet CIDRs should be within the VPC CIDR range
   subnets:
     - type: public
