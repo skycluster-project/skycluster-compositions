@@ -2,4 +2,42 @@ apiVersion: skycluster.io/v1alpha1
 kind: XKubeMesh
 metadata:
   name: example
-spec: {}
+spec: 
+  # Reference to xkubes.skycluster.io
+  clusterNames:
+    - example-kube-os-scinet
+
+  localCluster:
+    podCidr: "10"
+    serviceCidr: "10"
+status:
+  clusters:
+    - nameRef: "cluster1"
+      providerConfigName: ""
+      secretName: ""
+  log: ""
+
+  # Can get a reference to kubeconfig through xkubes.skycluster.io
+  # Can get a providerconfig (kubernetes, helm) for each cluster
+  
+
+  # Things to do:
+  # - install submariner (use helm, client mode), we need {broker info, cluster pod and service CIDR}
+  #   - user provider-helm to install operator on each cluster
+  #   - at least one node should be labled as gateway with public internet access
+
+  # This should gives us connectivity
+
+  # - install Istio:
+  #   - we need pod to generate ca root, write to persistent disk (makefile istio)
+  #   - for each cluster we need to generate intermediate CAs, write to persistent disk (pod)
+  #     - cluster name needed
+  #   - For each cluster need istio remote secret (pod)
+  #     - kubeconfig needed
+
+  # We need to distributed generated remote secrets to all other clusters
+    # use provier kubernetes to install remote secret in eaach cluster
+
+  # This should complete the setup
+
+  

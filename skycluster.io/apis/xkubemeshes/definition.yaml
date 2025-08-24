@@ -18,9 +18,35 @@ spec:
         properties:
           spec:
             description: XKubeMeshSpec defines the desired state of XKubeMesh.
+            properties:
+              clusterNames:
+                items:
+                  type: string
+                type: array
+              localCluster:
+                properties:
+                  podCidr:
+                    type: string
+                  serviceCidr:
+                    type: string
+                type: object
             type: object
           status:
             description: XKubeMeshStatus defines the observed state of XKubeMesh.
+            properties:
+              clusters:
+                items:
+                  properties:
+                    nameRef:
+                      type: string
+                    providerConfigName:
+                      type: string
+                    secretName:
+                      type: string
+                  type: object
+                type: array
+              log:
+                type: string
             type: object
         required:
         - spec
