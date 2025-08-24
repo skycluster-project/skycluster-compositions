@@ -269,6 +269,8 @@ dxr = {
       ]
     if _clusterSecretName:
       clusterSecretName = _clusterSecretName
+    podCidr = ocds?["xk8s"]?.Resource?.status?.podCidr
+    serviceCidr = ocds?["xk8s"]?.Resource?.status?.serviceCidr
     # log = json.encode({
     #   token = _token or "NA"
     #   kubeconfig = _kubeconfig or "NA"

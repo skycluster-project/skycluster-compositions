@@ -47,6 +47,8 @@ spec:
       secondary: us-east-1b
 status:
   log: "log"
+  serviceCidr: "10.0.0.0/24"
+  podCidr: "10.0.1.0/24"
   clusterName: "name"
   # Contains kubeconfig
   clusterSecretName: "cluster-secret"

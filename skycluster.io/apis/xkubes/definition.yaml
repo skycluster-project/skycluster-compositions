@@ -99,6 +99,10 @@ spec:
                 type: array
               log:
                 type: string
+              podCidr:
+                type: string
+              serviceCidr:
+                type: string
               token:
                 type: string
             type: object

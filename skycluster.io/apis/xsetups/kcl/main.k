@@ -45,7 +45,10 @@ _default_annotations = {
 _items = [
   helmv1beta1.ProviderConfig{
     metadata = {
-      labels = _default_labels
+      labels = _default_labels | {
+        "skycluster.io/config-type" = "helm-connection-data"
+        "skycluster.io/cluster-name" = "k8s-skycluster-management"
+      }
       annotations = {
           **_default_annotations,
           **helper._set_resource_name("helmConfig"),
@@ -64,7 +67,10 @@ _items = [
 _items += [
   k8sv1alpha1.ProviderConfig{
     metadata = {
-      labels = _default_labels
+      labels = _default_labels | {
+        "skycluster.io/config-type" = "k8s-connection-data"
+        "skycluster.io/cluster-name" = "k8s-skycluster-management"
+      }
       annotations = {
           **_default_annotations,
           **helper._set_resource_name("k8sConfig"),
@@ -367,7 +373,9 @@ _items += [
 
 
 #
-# Istio pre setup: generate root cacerts
+# Istio pre setup: generate root cacerts,
+# it also generates ca cert for the local management cluster and
+# store them in a secret with name k8s-skycluster-management-cacerts
 # We fetch the generated secret for istio root-ca using extraResource
 #
 _items += [
