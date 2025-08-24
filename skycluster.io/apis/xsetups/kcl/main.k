@@ -7,6 +7,7 @@ import provider_kubernetes.v1alpha2 as k8sv1alpha2
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
+extra = option("params")?.extraResources
 # _dxr = option("params").dxr # desired composite resource
 # dcds = option("params").dcds # desired composed resources
 
@@ -31,14 +32,22 @@ _ns = oxr.spec?.namespace or "skycluster-system"
 _apiServer = oxr.spec?.apiServer or Undefined
 assert _apiServer is not Undefined, "Broker public IP and port must be provided"
 
+_default_labels = {
+  **oxr.metadata?.labels,
+  "skycluster.io/managed-by" = "skycluster"
+}
+
+_default_annotations = {
+  **oxr.metadata?.annotations,
+}
 
 # Helm Provider Config
 _items = [
   helmv1beta1.ProviderConfig{
     metadata = {
-      labels = {"skycluster.io/managed-by": "skycluster"}
+      labels = _default_labels
       annotations = {
-          **oxr.metadata?.annotations,
+          **_default_annotations,
           **helper._set_resource_name("helmConfig"),
           "krm.kcl.dev/ready": "True"
       }
@@ -55,9 +64,9 @@ _items = [
 _items += [
   k8sv1alpha1.ProviderConfig{
     metadata = {
-      labels = {"skycluster.io/managed-by": "skycluster"}
+      labels = _default_labels
       annotations = {
-          **oxr.metadata?.annotations,
+          **_default_annotations,
           **helper._set_resource_name("k8sConfig"),
           "krm.kcl.dev/ready": "True"
       }
@@ -79,11 +88,11 @@ _items += [
   helmv1beta1.Release{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
+        **_default_labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
+        **_default_annotations,
         **helper._set_resource_name("submarinerBrokerRelease")
       }
     }
@@ -110,11 +119,9 @@ _items += [
     apiVersion = "skycluster.io/v1alpha1"
     kind = "XOverlay"
     metadata = {
-      labels = {
-        "skycluster.io/managed-by": "skycluster"
-      }
+      labels = _default_labels
       annotations = {
-        **oxr.metadata?.annotations,
+        **_default_annotations
         **helper._set_resource_name("xoverlay"),
       }
     }
@@ -131,12 +138,9 @@ assert _apiServerForHeadscale, "API server address must be provided"
 _items += [
   k8sv1alpha2.Object{
     metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        "skycluster.io/managed-by": "skycluster",
-      },
+      labels = _default_labels
       annotations = {
-        **oxr.metadata?.annotations,
+        **_default_annotations,
         **helper._set_resource_name("headscaleCertGenPod")
       }
     }
@@ -148,13 +152,10 @@ _items += [
           name = "headscale-cert-gen",
           namespace = _ns if _ns else "skycluster-system",
           labels = {
-            **oxr.metadata?.labels,
-            "skycluster.io/managed-by": "skycluster",
+            **_default_labels,
             "skycluster.io/pod-type": "headscale-cert-gen"
           },
-          annotations = {
-            **oxr.metadata?.annotations,
-          }
+          annotations = _default_annotations
         }
         spec = {
           restartPolicy = "Never"
@@ -203,12 +204,9 @@ _items += [
   # Init and main headscale-server containers
   k8sv1alpha2.Object{
     metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        "skycluster.io/managed-by": "skycluster",
-      },
+      labels = _default_labels
       annotations = {
-        **oxr.metadata?.annotations,
+        **_default_annotations,
         **helper._set_resource_name("headscaleServerDeployment")
       }
     }
@@ -220,13 +218,10 @@ _items += [
           name = "headscale-server",
           namespace = _ns if _ns else "skycluster-system",
           labels = {
-            **oxr.metadata?.labels,
-            "skycluster.io/managed-by": "skycluster",
+            **_default_labels,
             "skycluster.io/deploy-type": "headscale-server"
           },
-          annotations = {
-            **oxr.metadata?.annotations,
-          }
+          annotations = _default_annotations
         }
         spec = {
           selector.matchLabels = {"app": "headscale-server"}
@@ -333,12 +328,9 @@ _items += [
   # Service for headscale-server
   k8sv1alpha2.Object{
     metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        "skycluster.io/managed-by": "skycluster",
-      },
+      labels = _default_labels
       annotations = {
-        **oxr.metadata?.annotations,
+        **_default_annotations,
         **helper._set_resource_name("headscaleServerService")
       }
     }
@@ -350,13 +342,10 @@ _items += [
           name = "headscale-server",
           namespace = _ns if _ns else "skycluster-system",
           labels = {
-            **oxr.metadata?.labels,
-            "skycluster.io/managed-by": "skycluster",
+            **_default_labels,
             "skycluster.io/service-type": "headscale-server"
           },
-          annotations = {
-            **oxr.metadata?.annotations,
-          }
+          annotations = _default_annotations
         }
         spec = {
           type = "NodePort"
@@ -375,6 +364,85 @@ _items += [
   }
 
 ] if helper._ready(ocds?["headscaleCertGenPod"]) or ocds?["headscaleServerDeployment"] else []
+
+
+#
+# Istio pre setup: generate root cacerts
+# We fetch the generated secret for istio root-ca using extraResource
+#
+_items += [
+  k8sv1alpha2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/job-type": "istio-ca-certs"}
+      annotations = _default_annotations | helper._set_resource_name("caCerts")
+    }
+    spec =  {
+      forProvider.manifest = {
+        apiVersion = "batch/v1"
+        kind = "Job"
+        metadata = { 
+          name = "istio-root-ca-certs-generator",
+          namespace = "skycluster-system",
+          labels = _default_labels | {"skycluster.io/job-type": "istio-ca-certs"},
+          annotations = _default_annotations
+        }
+        spec = {
+          backoffLimit = 0
+          template = {
+            metadata.labels = _default_labels | {
+              "skycluster.io/job-type": "istio-ca-certs"
+            }
+            spec = {
+              serviceAccountName: "skycluster-sva"
+              restartPolicy = "Never"
+              volumes = [{
+                  name = "work"
+                  emptyDir = {}
+                }, {
+                  name = "script"
+                  configMap = {
+                    name = "script-istio-root-certs"
+                    defaultMode = 0755
+                  }
+                }
+              ]
+              containers = [{
+                  name = "runner"
+                  image = "etesami/kubectl:latest"
+                  imagePullPolicy = "IfNotPresent"
+                  command = ["/bin/bash","-lc","/script/run.sh"]
+                  env = [{
+                      name = "NAMESPACE"
+                      value = "skycluster-system"
+                    }, {
+                      name = "ROOT_SECRET_NAME"
+                      value = "istio-root-ca"
+                    }, {
+                      name = "KCFG_SELECTOR"
+                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
+                    }
+                  ]
+                  volumeMounts = [{
+                      name = "work"
+                      mountPath = "/work"
+                    }, {
+                      name = "script"
+                      mountPath = "/script"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+      providerConfigRef = {
+        name = _k8sProvCfgName
+      }
+    }
+  }
+] if _k8sProvCfgName or ocds?["caCerts"] else []
+
 
 
 # We need to observe the secret for headscale connection
@@ -423,6 +491,10 @@ dxr = [{
     loginUrl = "https://{}:8080".format(_apiServerForHeadscale) if _apiServerForHeadscale else Undefined,
     token = _hsToken?["key"] 
   }
+  if extra?.rootCASecret:
+    status.istio = {
+      rootCASecretName = extra?.rootCASecret?[0]?.Resource?.metadata?.name
+    }
   status.keypair = {
     secretName = _keypair.metadata?.name or Undefined,
     secretNamespace = _keypair.metadata?.namespace or "skycluster-system",
@@ -433,7 +505,23 @@ dxr = [{
     secretNamespace = _caSecret.metadata?.namespace,
     certificate = _ca
   }
+  # status.log = json.encode({
+  #   extraRes = extra
+  # })
 }] 
 
+extraItems = [{
+  apiVersion = "meta.krm.kcl.dev/v1alpha1"
+  kind = "ExtraResources"
+  requirements = {
+    rootCASecret = {
+        apiVersion: "v1",
+        kind: "Secret",
+        matchLabels: {
+          "skycluster.io/secret-type": "istio-root-ca"
+        }
+    }
+  }
+}]
 
-items = _items + dxr
+items = _items + dxr + extraItems

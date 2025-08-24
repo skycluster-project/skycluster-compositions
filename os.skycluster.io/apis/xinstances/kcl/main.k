@@ -59,13 +59,12 @@ _default_annotations = {
 }
 
 _networkId = _xsetup?.status?.vpc?.id
-_subnets = _xsetup?.status?.subnets or []
+_subnets = oxr.spec?.subnets or _xsetup?.status?.subnets or []
 _items += [opv1a1.PortV2{
   "metadata": {
     labels = _default_labels
     annotations = _default_annotations | {
       **helper._set_resource_name("port{}".format(i)),
-      # **helper._external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "PortV2")
     },
   },
   spec = _defaults | {
@@ -77,8 +76,7 @@ _items += [opv1a1.PortV2{
       }]
     }
   } 
-  # | helper._management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "PortV2")
-} for i, s in _subnets if s.type == "private" ] 
+} for i, s in _subnets] 
 
 
 _items += [opv1a1.KeypairV2{
@@ -146,7 +144,7 @@ _items += [opv1a1.SecgroupRuleV2{
 } for i, p in _tcpPorts]
 
 # Just get the first IP of the available public subnet
-_extNetworkName = [s.networkName for s in _xsetup.status?.subnets if s.type == "public" and s.networkName]?[0] or Undefined
+_extNetworkName = _xsetup.status?.externalNetwork?.networkName
 
 _items += [opv1a1.FloatingipV2{
   "metadata": {
@@ -218,7 +216,7 @@ _items += [opv1a1.InstanceV2{
       userData = oxr.spec.userData
     }
   } | helper._management_policy(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "InstanceV2")
-}] if _portId and _ready_to_create  or ocds?["instance"] else []
+}] if _portId and _ready_to_create or ocds?["instance"] else []
 
 
 dxr = {

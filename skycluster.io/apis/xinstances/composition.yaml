@@ -263,6 +263,7 @@ spec:
                   publicKey = _publicKey
                   publicIp = oxr.spec?.publicIp or False
                   userData = _userData
+                  subnets = oxr.spec?.subnets
                   ipForwarding = oxr.spec?.ipForwarding or False
                   securityGroups = oxr.spec?.securityGroups
                   rootVolumes = oxr.spec?.rootVolumes or []
@@ -323,6 +324,9 @@ spec:
               },
               spec = {
                 references = [{
+                  # TODO: When object is deleted, the providerconfig remains
+                  # Manual deletion of provider config does not remove the finalizer on the secret
+                  # The owner of secret still remains waiting for secret to be removed.
                   dependsOn = {
                     apiVersion = "v1"
                     kind = "Secret"
@@ -330,6 +334,7 @@ spec:
                     namespace = _ns
                   }
                 }]
+                deletionPolicy = "Delete"
                 forProvider = {
                   manifest = {
                     apiVersion = "ssh.crossplane.io/v1alpha1",

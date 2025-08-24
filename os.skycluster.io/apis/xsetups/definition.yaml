@@ -107,6 +107,15 @@ spec:
                 type: object
               log:
                 type: string
+              router:
+                properties:
+                  externalNetworkId:
+                    type: string
+                  routerId:
+                    type: string
+                  routerName:
+                    type: string
+                type: object
               securityGroup:
                 properties:
                   id:

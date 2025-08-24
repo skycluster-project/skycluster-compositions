@@ -43,6 +43,8 @@ spec:
                       type: string
                   type: object
                 type: array
+              podCidr:
+                type: string
               providerRef:
                 properties:
                   platform:
@@ -65,108 +67,65 @@ spec:
                 items:
                   properties:
                     agent:
-                      properties:
-                        generate:
-                          type: string
-                        observed:
-                          type: string
-                      type: object
-                    id:
                       type: string
                     instanceType:
-                      type: string
-                    nodeGroupHash:
                       type: string
                     privateIp:
                       type: string
                     providerConfigs:
                       properties:
                         ssh:
-                          properties:
-                            observed:
-                              type: string
-                          type: object
+                          type: string
                       type: object
                     publicAccess:
                       type: boolean
                     publicIp:
                       type: string
-                    role:
-                      type: string
                     ssh:
-                      properties:
-                        generate:
-                          type: string
-                        observed:
-                          type: string
-                      type: object
-                    sshGate:
-                      type: boolean
+                      type: string
                   type: object
                 type: array
+              clusterSecretName:
+                type: string
               controllers:
                 items:
                   properties:
                     controller:
-                      properties:
-                        generate:
-                          type: string
-                        observed:
-                          type: string
-                      type: object
-                    id:
                       type: string
                     instanceType:
                       type: string
-                    nodeGroupHash:
-                      type: string
                     privateIp:
                       type: string
-                    providerCfgGate:
-                      type: boolean
                     providerConfigs:
                       properties:
+                        helm:
+                          type: string
                         k8s:
-                          properties:
-                            generate:
-                              type: string
-                            observed:
-                              type: string
-                          type: object
+                          type: string
                         ssh:
-                          properties:
-                            observed:
-                              type: string
-                          type: object
+                          type: string
                       type: object
-                    publicAccess:
-                      type: boolean
                     publicIp:
                       type: string
-                    role:
-                      type: string
                     secret:
-                      properties:
-                        generate:
-                          type: string
-                        observed:
-                          type: string
-                      type: object
-                    secretGate:
-                      type: boolean
+                      type: string
                     ssh:
-                      properties:
-                        generate:
-                          type: string
-                        observed:
-                          type: string
-                      type: object
-                    sshGate:
-                      type: boolean
+                      type: string
                   type: object
                 type: array
               log:
                 type: string
+              podCidr:
+                type: string
+              serviceCidr:
+                type: string
+              subnet:
+                properties:
+                  networkId:
+                    type: string
+                  subnetId:
+                    type: string
+                type: object
             type: object
         required:
         - spec

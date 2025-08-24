@@ -167,7 +167,9 @@ spec:
             #
             _items += [opv1a1.NetworkV2{
               "metadata": {
-                labels = _default_labels
+                labels = _default_labels | {
+                  "skycluster.io/default-network" = "true"
+                }
                 annotations = _default_annotations | {
                   **helper._set_resource_name("network"),
                 },
@@ -244,7 +246,9 @@ spec:
                   cidr = s.cidr
                   gatewayIp = s.gatewayIp
                   dnsNameservers: ["8.8.8.8", "8.8.4.4"]
-                  networkIdSelector.matchControllerRef = True
+                  networkIdSelector.matchLabels = _default_labels | {
+                    "skycluster.io/default-network" = "true"
+                  }
                 },
               }
             } for i, s in _subnets]
@@ -411,6 +415,9 @@ spec:
               }
             }]
 
+            #
+            # Port from private subnet for instance
+            #
             _items += [opv1a1.PortV2{
               "metadata": {
                 labels = _default_labels
@@ -421,7 +428,9 @@ spec:
               spec = _defaults | {
                 forProvider = {
                   region = _oxrProvRegion
-                  networkIdSelector.matchControllerRef = True
+                  networkIdSelector.matchLabels = _default_labels | {
+                    "skycluster.io/default-network" = "true"
+                  }
                   fixedIp = [{
                     subnetIdSelector.matchLabels = _default_labels | {
                       "skycluster.io/default-subnet" = "true"
@@ -547,6 +556,12 @@ spec:
                 status.gateway = {
                   publicIp = _floatingIp
                   privateIp = _instanceIp
+                }
+              if ocds?["router"]:
+                status.router ={
+                  routerId = ocds["router"]?.Resource?.status?.atProvider?.id
+                  routerName = ocds["router"]?.Resource?.status?.atProvider?.name
+                  externalNetworkId = ocds["router"]?.Resource?.status?.atProvider?.externalNetworkId
                 }
             }
 

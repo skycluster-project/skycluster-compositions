@@ -50,6 +50,11 @@ spec:
                   token:
                     type: string
                 type: object
+              istio:
+                properties:
+                  rootCASecretName:
+                    type: string
+                type: object
               keypair:
                 properties:
                   publicKey:

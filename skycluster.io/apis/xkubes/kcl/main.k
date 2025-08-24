@@ -121,7 +121,6 @@ _items += [{
   spec = {
     applicationId = oxr.spec?.applicationId or Undefined
     serviceCidr = oxr.spec?.serviceCidr or Undefined
-    # principalArn = oxr.spec?.principal?.id or Undefined
 
     nodeGroups = [
       *[{
@@ -186,8 +185,8 @@ _items += [{
   spec = {
     applicationId = oxr.spec?.applicationId or Undefined
     serviceCidr = oxr.spec?.serviceCidr or Undefined
-    # principalArn = oxr.spec?.principal?.id or Undefined
-    
+    podCidr = oxr.spec?.podCidr or Undefined
+
     nodeGroups = [
       # First node group is for controller node
       if oxr.spec?.controlPlane:
@@ -196,7 +195,7 @@ _items += [{
           role = "control-plane"
           instanceType = helper._get_instance_type(_provSettings, oxr.spec?.controlPlane?.instanceType or "4vCPU-16GB", _oxrProvZone)?[0]
           publicAccess = True
-          highAvailability = oxr.spec?.controlPlane?.highAvailability
+          # highAvailability = oxr.spec?.controlPlane?.highAvailability
           if oxr.spec?.controlPlane?.autoScaling:
             autoScaling = {
               enabled = oxr.spec?.controlPlane?.autoScaling?.enabled
@@ -234,7 +233,7 @@ _items += [{
 _token = ocds?["xk8s"]?.Resource?.status?.token
 _kubeconfig = ocds?["xk8s"]?.Resource?.status?.kubeconfig
 _controllers = ocds?["xk8s"]?.Resource?.status?.controller
-
+_clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
 
 # Create a ProviderConfig for both Kubernetes and helm
 # The kubeconfig is already stored in a secret by xkube object
@@ -257,6 +256,7 @@ secret = {
 dxr = {
   **option("params").dxr,
   status = {
+    clusterName = ocds?["xk8s"]?.Resource?.metadata?.name
     if _kubeconfig:
       kubeconfig = _kubeconfig
     if _token:
@@ -267,6 +267,8 @@ dxr = {
           publicIp = s.publicIp or Undefined
         } for s in _controllers
       ]
+    if _clusterSecretName:
+      clusterSecretName = _clusterSecretName
     # log = json.encode({
     #   token = _token or "NA"
     #   kubeconfig = _kubeconfig or "NA"

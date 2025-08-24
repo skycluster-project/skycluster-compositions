@@ -5,8 +5,9 @@
 #  - XKube
 #    Controllers:
 #    - XInstance
-#      Secret (k3s)
-#      SSHTask (fetch k3s token)
+#      Secret [object] (k3s)
+#      ProviderConfig (k3s access)
+#      SSHTask (install k3s, fetch token)
 #    Agents:
 #    - XInstance
 #      SSHTask (ensure joining k3s controller)
@@ -14,11 +15,13 @@
 
 import yaml
 import base64
-import json
+# import json
 import crypto
 import helper.v1alpha1.main as helper
+import provider_openstack.v1alpha1 as opv1a1
 import provider_kubernetes.v1alpha2 as k8sv1a2
 import provider_kubernetes.v1alpha1 as k8sv1a1
+import provider_helm.v1beta1 as helmv1b1
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -105,6 +108,14 @@ _userDataCtrl = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_
 _userDataCtrl = _replace(
   _userDataCtrl, _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
 ) if _userDataCtrl else Undefined
+assert oxr.spec?.serviceCidr, "Service CIDR must be specified"
+_userDataCtrl = _userDataCtrl.replace("__SERVICE_CIDR__", oxr.spec?.serviceCidr)
+
+# Cluster Cidr is determined based on the subnets that will be created later
+# Only one subnet is created for the cluster and public IP will be assigned
+# individually to each node if requested.
+if oxr.spec?.podCidr:
+  _userDataCtrl = _userDataCtrl.replace("__CLUSTER_CIDR__", oxr.spec?.podCidr)
 
 # This is config map
 _k3sCtrlScript = _select_scripts(_initScriptsSSH, ["k3s-controller-check"]) or {}
@@ -148,7 +159,62 @@ _ctrlObjDataBase = {
   } for k, ng in _ctrlNodeGroup for j in range(0, min(_maxNodeCount, ng.nodeCount))
 }
 
-# Add additional map str:str
+#
+# Subnet [private] for all node groups
+#
+_items += [
+  opv1a1.SubnetV2{
+  "metadata": {
+    labels = _default_labels | {
+      "skycluster.io/subnet-type" = "cluster-subnet"
+    }
+    annotations = _default_annotations | {
+      **helper._set_resource_name("clusterSubnet"),
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      name = oxr.metadata.name
+      region = _oxrProvRegion
+      cidr = oxr.spec?.podCidr
+      dnsNameservers: ["8.8.8.8", "8.8.4.4"]
+      networkIdSelector.matchLabels = {
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/default-network" = "true"
+      }
+    },
+  }
+}]
+
+_subnetId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.id
+_networkId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.networkId
+
+#
+# connect subnet to the router to access the external network
+# Assume the external network is ready, there should be already a router created
+_routerId = _xsetup?.status?.router?.routerId
+# Assume that the public subnet has already access to internet
+# and does not need a connection with the router
+_items += [opv1a1.RouterInterfaceV2{
+  "metadata": {
+    labels = _default_labels
+    annotations = _default_annotations | {
+      **helper._set_resource_name("routerInterface"),
+    },
+  },
+  spec = _defaults | {
+    forProvider = {
+      region = _oxrProvRegion
+      routerId = _routerId
+      subnetIdSelector.matchControllerRef = True
+    }
+  }
+}] if _routerId or ocds?["routerInterface"] else []
+
+
+#
+# Prepare the data structure, add additional field 
+#
 _ctrlObjData = {
   k = _merge(
     v,
@@ -168,6 +234,10 @@ _ctrlObjData = {
       providerConfigs = { # provider config for ctrl xinstance
         k8s = { # k3s provider config
           generate = "pc{}I{}".format(v.nodeGroupHash, v.id)
+          observed = ocds?[generate]?.Resource?.metadata?.name
+        }
+        helm = { # k3s provider config
+          generate = "ph{}I{}".format(v.nodeGroupHash, v.id)
           observed = ocds?[generate]?.Resource?.metadata?.name
         }
         ssh = { # providerconfig for ssh (comes from XInstance)
@@ -204,6 +274,7 @@ _ctrlObjData = {
 # ctrl xinstance(s)
 # Multi controller is not yet supported, we capture the first nodegroup 
 # specified for control-plane and create an instance for it (ignoring nodeCount)
+_instanceGate = all_true([_subnetId, _networkId])
 _items += [
   {
     "apiVersion" = "skycluster.io/v1alpha1",
@@ -229,14 +300,19 @@ _items += [
         "region" = _oxrProvRegion,
         "zone" = _oxrProvZone
       },
+      "subnets" = [{
+        "id" = _subnetId
+        "networkId" = _networkId
+      }]
       "userData" = _userDataCtrl
     }
-  } for k, c in _ctrlObjData 
+  } for k, c in _ctrlObjData if _instanceGate or ocds?[k]
 ]
 
-
-# Controller ssh connection sshtask, it install k3s
+#
+# SSHTask object for controller ssh connection, it checks k3s installation and fetches data
 # Multi controller is not yet supported
+#
 _items += [
   {
     apiVersion = "ssh.crossplane.io/v1alpha1"
@@ -281,9 +357,10 @@ _items += [
   } for c, cv in _ctrlObjData if cv.sshGate or ocds?[cv.ssh?.generate]
 ]
 
-
-# Controller ssh connection secret, it saves a secret containing k3s token and kubeconfig
+#
+# Object: Controller ssh connection secret, it saves a secret containing k3s token and kubeconfig
 # Multi controller is not yet supported
+#
 _items += [
   k8sv1a2.Object{
     metadata = {
@@ -295,15 +372,17 @@ _items += [
       },
     },
     spec = {
+      deletionPolicy = "Delete"
       forProvider = {
         manifest = {
           apiVersion = "v1",
           kind = "Secret",
           metadata = {
-            name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.privateIp),
+            name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.privateIp.replace(".","-")),
             namespace = _ns,
             labels = _default_labels | {
               "skycluster.io/secret-type" = "k8s-connection-data",
+              "skycluster.io/cluster-name" = _oxrName,
             },
             annotations = _default_annotations,
           },
@@ -319,12 +398,17 @@ _items += [
   } for c, cv in _ctrlObjData if cv.secretGate or ocds?[cv.secret?.generate]
 ]
 
-# Controller Kubernetes provider config connection 
+#
+# ProviderConfig K8S: Controller Kubernetes provider config connection 
 # Multi controller is not yet supported
+#
 _items += [
   k8sv1a1.ProviderConfig{
     metadata = {
-      labels = _default_labels
+      labels = _default_labels | {
+        "skycluster.io/config-type" = "k8s-connection-data"
+        "skycluster.io/cluster-name" = _oxrName
+      }
       annotations = _default_annotations | {
         **helper._set_resource_name(cv.providerConfigs?.k8s?.generate),
         "krm.kcl.dev/ready" = "True"
@@ -343,6 +427,33 @@ _items += [
   } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.k8s?.generate]
 ]
 
+#
+# ProviderConfig Helm: Controller helm provider config connection 
+#
+_items += [
+  helmv1b1.ProviderConfig{
+    metadata = {
+      labels = _default_labels | {
+        "skycluster.io/config-type" = "helm-connection-data"
+        "skycluster.io/cluster-name" = _oxrName
+      }
+      annotations = _default_annotations | {
+        **helper._set_resource_name(cv.providerConfigs?.helm?.generate),
+        "krm.kcl.dev/ready" = "True"
+      }
+    }
+    spec = {
+      credentials = {
+        source = "Secret"
+        secretRef = {
+          namespace = _ns
+          name = cv?.secret?.observed
+          key = "kubeconfig"
+        }
+      }
+    }
+  } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.helm?.generate]
+]
 
 
 # ###################### Note ######################
@@ -378,7 +489,9 @@ _agObjDataBase = {
 }
 
 
-# Add additional map str:str
+#
+# Add additional fields for agents
+#
 _agentObjData = {
   k = _merge(
     v, 
@@ -427,22 +540,27 @@ _items += [
       },
     },
     "spec" = {
-      "applicationId" = _oxrAppId,
-      "ipForwarding" = True,
-      "image" = "ubuntu-24.04",
-      "flavor" = v.instanceType,
-      "publicIp" = v.publicAccess,
-      "providerRef" = {
-        "platform" = _oxrProvPlatform,
-        "region" = _oxrProvRegion,
-        "zone" = _oxrProvZone
+      applicationId = _oxrAppId,
+      ipForwarding = True,
+      image = "ubuntu-24.04",
+      flavor = v.instanceType,
+      publicIp = v.publicAccess,
+      providerRef = {
+        platform = _oxrProvPlatform,
+        region = _oxrProvRegion,
+        zone = _oxrProvZone
       },
+      subnets = [{
+        id = _subnetId
+        networkId = _networkId
+      }]
     }
-  } for k, v in _agentObjData if v or ocds?[k]
+  } for k, v in _agentObjData if (v and _instanceGate) or ocds?[k]
 ]
 
-
-# agent ssh connection sshtask
+#
+# SSHTask agent ssh connection sshtask
+#
 _items += [
   {
     apiVersion = "ssh.crossplane.io/v1alpha1"
@@ -506,19 +624,43 @@ _items += [
 dxr = {
   **option("params").dxr,
   status = {
+    serviceCidr = oxr.spec?.serviceCidr
+    podCidr = oxr.spec?.podCidr
+    # For easier access to cluster:
+    clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
+    if _subnetId or _networkId:
+      subnet = {
+        subnetId = _subnetId
+        networkId = _networkId
+      }
     controllers = [
       {
-        k = v for id, obj in _ctrlObjData for k, v in obj if k not in ["token", "kubeconfig_encoded"]
-      }
+        **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType"]}
+        **{k = str(v?["observed"]) for k, v in obj if k in ["secret", "ssh", "controller"]}
+        **{
+          k = {
+            a = str(b?["observed"]) for a, b in v
+          } for k, v in obj if k in ["providerConfigs"]
+        }
+      } for _, obj in _ctrlObjData
     ]
     agents = [
       {
-        k = v for id, obj in _agentObjData for k, v in obj
-      } 
+        **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType", "publicAccess"]} 
+        **{k = str(v?["observed"]) for k, v in obj if k in ["ssh", "agent"]}
+        **{
+          k = {
+            a = str(b?["observed"]) for a, b in v
+          } for k, v in obj if k in ["providerConfigs"]
+        }
+      } for _, obj in _agentObjData
     ]
     # log = json.encode({
-    #   ctrlObject = _ctrlObjData
-    #   agObject = _agentObjData
+    #   # ctrlObject = _ctrlObjData
+    #   # agObject = _agentObjData
+    #   # agentProbeScript = _agentProbeScript, 
+    #   # agentEnsureScript= _agentEnsureScript, 
+    #   # pvcfg = providerConfigs?.ssh?.observed # defined above
     # })
   }
 }

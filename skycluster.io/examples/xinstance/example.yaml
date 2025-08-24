@@ -12,6 +12,9 @@ spec:
     #!/bin/bash
     echo "Hello, World!" > /var/tmp/hello.txt
   ipForwarding: true # only openstack platform
+  subnets:
+  - id: subnet-12345678
+    networkId: network-12345678
   securityGroups:
     tcpPorts:
       - fromPort: 22

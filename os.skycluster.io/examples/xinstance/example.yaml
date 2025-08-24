@@ -26,6 +26,11 @@ spec:
   rootVolumes:
     - size: 20Gi
       type: gp2
+
+  subnets:
+  - id: subnet-12345678
+    networkId: network-12345678
+    
   providerRef:
     platform: openstack
     region: SCINET

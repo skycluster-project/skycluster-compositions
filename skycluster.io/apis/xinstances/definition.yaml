@@ -74,6 +74,15 @@ spec:
                       type: object
                     type: array
                 type: object
+              subnets:
+                items:
+                  properties:
+                    id:
+                      type: string
+                    networkId:
+                      type: string
+                  type: object
+                type: array
               userData:
                 type: string
             type: object

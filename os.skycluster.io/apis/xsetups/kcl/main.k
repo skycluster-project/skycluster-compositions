@@ -111,7 +111,9 @@ _items += [opv1a1.ProjectV3{
 #
 _items += [opv1a1.NetworkV2{
   "metadata": {
-    labels = _default_labels
+    labels = _default_labels | {
+      "skycluster.io/default-network" = "true"
+    }
     annotations = _default_annotations | {
       **helper._set_resource_name("network"),
     },
@@ -188,7 +190,9 @@ _items += [opv1a1.SubnetV2{
       cidr = s.cidr
       gatewayIp = s.gatewayIp
       dnsNameservers: ["8.8.8.8", "8.8.4.4"]
-      networkIdSelector.matchControllerRef = True
+      networkIdSelector.matchLabels = _default_labels | {
+        "skycluster.io/default-network" = "true"
+      }
     },
   }
 } for i, s in _subnets]
@@ -355,6 +359,9 @@ _items += [opv1a1.KeypairV2{
   }
 }]
 
+#
+# Port from private subnet for instance
+#
 _items += [opv1a1.PortV2{
   "metadata": {
     labels = _default_labels
@@ -365,7 +372,9 @@ _items += [opv1a1.PortV2{
   spec = _defaults | {
     forProvider = {
       region = _oxrProvRegion
-      networkIdSelector.matchControllerRef = True
+      networkIdSelector.matchLabels = _default_labels | {
+        "skycluster.io/default-network" = "true"
+      }
       fixedIp = [{
         subnetIdSelector.matchLabels = _default_labels | {
           "skycluster.io/default-subnet" = "true"
@@ -491,6 +500,12 @@ dxr = {
     status.gateway = {
       publicIp = _floatingIp
       privateIp = _instanceIp
+    }
+  if ocds?["router"]:
+    status.router ={
+      routerId = ocds["router"]?.Resource?.status?.atProvider?.id
+      routerName = ocds["router"]?.Resource?.status?.atProvider?.name
+      externalNetworkId = ocds["router"]?.Resource?.status?.atProvider?.externalNetworkId
     }
 }
 

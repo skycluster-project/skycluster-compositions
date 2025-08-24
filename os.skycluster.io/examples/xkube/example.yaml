@@ -5,16 +5,22 @@ metadata:
 spec: 
   applicationId: example-app
   serviceCidr: 10.0.0.0/24
+  podCidr: 10.120.0.0/24 # must be provided and be within the VPC cidr of the provider
+  # A single subnet with pod cidr will be created for node groups listed below
+
   # Principal ARN for the IAM role that has permissions to manage the cluster
   # The purpose of this role is to allow the user assuming the role to 
   # view the cluster status through the AWS console or CLI (+optional)
   # principalArn: arn:aws:iam::123456789012:role/ExampleRole
   nodeGroups:
     # Warning: changing nodeGroups after cluster provisioning may have unpredicted results
+    # Note: One subnet is created for all nodegroups in this version.
+    # A nodegroup is a group of nodes with the same configuration:
+    # [role, instanceType, publicAccess]
     - nodeCount: 1 # mutli-controller kubernetes is not supported yet.
       role: control-plane
       instanceType: 4vCPU-32GB
-      publicAccess: true
+      publicAccess: true # will attach a floating IP to the node
       autoScaling:
         enabled: true
         minSize: 1
@@ -32,27 +38,34 @@ spec:
     region: SCINET
     zones: 
       primary: default
-      # secondary: us-east1-b
-    # name: example-provider
 status:
-  log: "This is a placeholder for the status field"
+  log: This is a placeholder for the status field
+  serviceCidr: 10.10.10.0/24
+  podCidr: 10.10.10.0/24
+  clusterSecretName: example-cluster-secret
+  subnet:
+    networkId: example-network-id
+    subnetId: example-subnet-id
   controllers:
-    - network:
-        privateIp: "ip"
-        publicIp: "ip"
-      secretName: "secret"
-      controllerName: "controller"
+    - privateIp: 10.135.0.23,
+      publicIp: 142.1.174.183,
+      instanceType: m2.xlarge,
+      controller: example-kube-os-scinet-4d5tb
+      ssh: example-kube-os-scinet-4jzrw
+      secret: k3s-openstack-scinet-10.135.0.23
       providerConfigs: 
-        ssh:
-          name: "example"
+        k8s: example-kube-os-scinet-mcwbq
+        ssh: ssh-openstack-scinet-10.135.0.23
+        helm: helm-openstack-scinet-10.135.0.23
   agents:
-    - providerConfigs: 
-        ssh:
-          name: "example"
-      agentName: "agent"
-      network: 
-        privateIp: "ip"
-        publicIp: "ip"
+    - instanceType: m2.xlarge,
+      publicAccess: true
+      agent: example-kube-os-scinet-sq56m
+      providerConfigs: 
+        ssh: ssh-openstack-scinet-10.135.0.6
+      ssh: example-kube-os-scinet-6zp55
+      privateIp: 10.135.0.6
+      publicIp: 142.1.174.184
   # kubeconfig: "base64 kubeconfig"
   # token: "token"
   # controller:

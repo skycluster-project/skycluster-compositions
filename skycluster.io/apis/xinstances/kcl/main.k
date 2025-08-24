@@ -77,7 +77,9 @@ _userData = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)]
 
 _defaultPrivateKey = _extractPrivateKey(_defaultKey?.data?["config"])
 
-
+#
+# xinstances.aws
+#
 _items = [
   {
     apiVersion = "aws.skycluster.io/v1alpha1"
@@ -115,6 +117,9 @@ _items = [
   }
 ] if oxr.spec?.providerRef?.platform == "aws" else []
 
+#
+# xinstances.gcp
+#
 _items = [
   {
     apiVersion = "gcp.skycluster.io/v1alpha1"
@@ -152,7 +157,9 @@ _items = [
   }
 ] if oxr.spec?.providerRef?.platform == "gcp" else []
 
-
+#
+# xinstances.os
+#
 _items = [
   {
     apiVersion = "os.skycluster.io/v1alpha1"
@@ -174,6 +181,7 @@ _items = [
       publicKey = _publicKey
       publicIp = oxr.spec?.publicIp or False
       userData = _userData
+      subnets = oxr.spec?.subnets
       ipForwarding = oxr.spec?.ipForwarding or False
       securityGroups = oxr.spec?.securityGroups
       rootVolumes = oxr.spec?.rootVolumes or []
@@ -234,6 +242,9 @@ _items += [k8sv1a2.Object{
   },
   spec = {
     references = [{
+      # TODO: When object is deleted, the providerconfig remains
+      # Manual deletion of provider config does not remove the finalizer on the secret
+      # The owner of secret still remains waiting for secret to be removed.
       dependsOn = {
         apiVersion = "v1"
         kind = "Secret"
@@ -241,6 +252,7 @@ _items += [k8sv1a2.Object{
         namespace = _ns
       }
     }]
+    deletionPolicy = "Delete"
     forProvider = {
       manifest = {
         apiVersion = "ssh.crossplane.io/v1alpha1",

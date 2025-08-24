@@ -17,6 +17,8 @@ status:
       name: provider-kubernetes-67890
   submariner:
     connectionSecretName: submariner-config
+  istio:
+    rootCASecretName: "example-root-ca"
   headscale:
     connectionSecretName: headscale-config
     loginUrl: https://headscale.example.com
