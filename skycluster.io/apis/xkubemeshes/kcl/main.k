@@ -92,6 +92,7 @@ assert oxr.spec?.localCluster?.serviceCidr, "Service CIDR must be provided in th
 
 # Default (local) provider config
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
+_k8sMgmtClusterName = "k8s-skycluster-management"
 
 _default_labels = {
   **oxr.metadata?.labels,
@@ -105,19 +106,19 @@ assert len(_clusterNames) > 0, "At least one cluster name must be provided in th
 
 # since we have the local management cluster as part of the multi-cluster setup
 # we manually add the name of the local management cluster
-_clusterNames += ["k8s-skycluster-management"]
+_clusterNames += [_k8sMgmtClusterName]
 
 #
 # fetch referenced xkubes objects based on the cluster names (cloud-provider specific k8s)
 #
 _clusterNamesRef = [o?.Resource?.status?.clusterName for s in _clusterNames for k, obj in extra if k == s for o in obj]
 # adding management cluster
-_clusterNamesRef += ["k8s-skycluster-management"]
+_clusterNamesRef += [_k8sMgmtClusterName]
 
 # construct helper maps for remote-secrets and remote-provider-configs
-_remoteSecretsMap: {str:{str:str}} = {
+_remoteSecretsMap: {str:{str:any}} = {
   cn = {
-      data = base64.decode(s.data?["remote-secret.yaml"])
+      data = s.data
       name = s.metadata?.name
     } for cn in _clusterNamesRef for s in _remoteSecrets \
       if cn == s.metadata?.labels["skycluster.io/cluster-name"]
@@ -148,14 +149,14 @@ _remoteProviderCfgsMaps = {
 _items = []
 
 #
-# Ensure namespace istio-system exists in the remote clusters and local
+# Ensure namespace istio-system and skycluster-system exists in the remote clusters and local
 # Note: provider config for local cluster is retrieved by same filter:
 # skycluster.io/config-type = k8s-connection-data through the extraResources
 #
 _items += [
   k8sv1a2.Object{
     metadata = {
-      annotations =  helper._set_resource_name("istioNamespace{}".format(i))
+      annotations =  helper._set_resource_name("ns{}{}".format(i,ns))
     }
     spec = {
       deletionPolicy = "Orphan"
@@ -163,12 +164,12 @@ _items += [
         apiVersion = "v1"
         kind = "Namespace"
         metadata = {
-          name = "istio-system"
+          name = ns
         }
       }
       providerConfigRef.name = pc
     }
-  } for i, pc in [_remoteK8SProviderCfgsMap[o] for o in _clusterNamesRef]
+  } for i, pc in [_remoteK8SProviderCfgsMap[o] for o in _clusterNamesRef] for ns in ["istio-system", "skycluster-system"]
 ] 
 
 
@@ -283,7 +284,7 @@ _caCertPodStatus = ocds?["caCerts"]?.Resource?.status?.atProvider?.manifest?.sta
 #
 
 #
-# Installing istio cacerts on each local cluster
+# [K8S Object] Installing istio cacerts on each local cluster
 #
 _items += [
   k8sv1a2.Object{
@@ -303,10 +304,10 @@ _items += [
           annotations = _default_annotations
         }
         data = {
-          "ca-cert.pem" = base64.encode(yaml.decode(_remoteSecretsMap[s]?.data)?.stringData?["ca-cert.pem"])
-          "ca-key.pem" = base64.encode(yaml.decode(_remoteSecretsMap[s]?.data)?.stringData?["ca-key.pem"])
-          "root-cert.pem" = base64.encode(yaml.decode(_remoteSecretsMap[s]?.data)?.stringData?["root-cert.pem"])
-          "cert-chain.pem" = base64.encode(yaml.decode(_remoteSecretsMap[s]?.data)?.stringData?["cert-chain.pem"])
+          "ca-cert.pem" = _remoteSecretsMap[s]?.data?["ca-cert.pem"]
+          "ca-key.pem" = _remoteSecretsMap[s]?.data?["ca-key.pem"]
+          "root-cert.pem" = _remoteSecretsMap[s]?.data?["root-cert.pem"]
+          "cert-chain.pem" = _remoteSecretsMap[s]?.data?["cert-chain.pem"]
         }
       }
       providerConfigRef = {
@@ -342,7 +343,7 @@ _items += [
         skipCreateNamespace = False
       }
       providerConfigRef = {
-        name = _remoteProviderCfgsMaps?[s]?.k8s
+        name = _remoteProviderCfgsMaps?[s]?.helm
       }
     }
   } for s in _clusterNamesRef
@@ -401,21 +402,24 @@ _items += [
   k8sv1a2.Object{
     metadata = {
       labels = _default_labels | {"skycluster.io/secret-type": "remote"}
-      annotations = _default_annotations | helper._set_resource_name("remote{}".format(s))
+      annotations = _default_annotations | helper._set_resource_name("remote{}".format(s)) | {
+        "skycluster.io/from-cluster": s,
+        "skycluster.io/to-cluster": t
+      }
     }
     spec = {
       forProvider.manifest = {
         apiVersion = "v1"
         kind = "Secret"
         metadata = {
-          name = yaml.decode(_remoteSecretsMap[s]?.data)?.metadata?.name
-          namespace = yaml.decode(_remoteSecretsMap[s]?.data)?.metadata?.namespace
-          labels = yaml.decode(_remoteSecretsMap[s]?.data)?.metadata?.labels | _default_labels | {
+          name = yaml.decode(base64.decode(_remoteSecretsMap[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.name
+          namespace = yaml.decode(base64.decode(_remoteSecretsMap[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.namespace
+          labels = yaml.decode(base64.decode(_remoteSecretsMap[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.labels | _default_labels | {
             "skycluster.io/secret-type": "remote"
           }
-          annotations = yaml.decode(_remoteSecretsMap[s]?.data)?.metadata?.annotations | _default_annotations
+          annotations = yaml.decode(base64.decode(_remoteSecretsMap[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.annotations | _default_annotations
         }
-        stringData = yaml.decode(_remoteSecretsMap[s]?.data)?.stringData
+        stringData = yaml.decode(base64.decode(_remoteSecretsMap[s]?.data?["remote-secret.yaml"]).replace("---",""))?.stringData
       }
       providerConfigRef = {
         name = _remoteProviderCfgsMaps[t]?.k8s
@@ -497,7 +501,7 @@ _items += [
               "server": _apiServer,
               "namespace": "skycluster-system",
               "ca" : _brokerCA,
-              "token": base64.decode(_brokerToken),
+              "token": _brokerToken
             }
           })
         }
@@ -519,7 +523,7 @@ _xkubesRefData = {
   } for s in _clusterNames for k, obj in extra if k == s for o in obj
 } | {
   # merge with local management cluster's data
-  "k8s-skycluster-management" = {
+  _k8sMgmtClusterName = {
     podCidr = oxr.spec?.localCluster?.podCidr
     serviceCidr = oxr.spec?.localCluster?.serviceCidr
   }
@@ -527,11 +531,13 @@ _xkubesRefData = {
 
 #
 # Submariner operator, using the secret above
+# We already create istio-operator for the local kubernetes cluster
+# so we skip creation for the local cluster
 #
 _items += [
   helmv1b1.Release{
     metadata = {
-      labels = _default_labels
+      labels = _default_labels 
       annotations = _default_annotations | {
         **helper._set_resource_name("submarinerCluster{}".format(s))
       }
@@ -567,9 +573,8 @@ _items += [
         name = _remoteProviderCfgsMaps[s]?.helm
       }
     }
-  } for s in _clusterNamesRef 
+  } for s in _clusterNamesRef if s != _k8sMgmtClusterName
 ] if _xkubesRefData and _clusterNamesRef else []  
-
 
 
 
@@ -586,7 +591,9 @@ dxr = {
     } for s in _clusterNamesRef]
     log = json.encode(
       {
-        extra = str(extra)
+        # caCertPodStatus = _caCertPodStatus
+        # remoteSecret = [_remoteSecretsMap[s]?.data?["remote-secret.yaml"] for s in _clusterNamesRef][0]
+        # remotpc = _remoteProviderCfgsMaps
         # "podStatus" = _caCertPodStatus or "NA",
         # "status" = True if _caCertPodStatus and _remoteSecretsMap and _remoteK8SProviderCfgsMap else False
         # **{cacert = ocds?["caCerts"]}
@@ -609,7 +616,7 @@ extraItems = {
         apiVersion: "skycluster.io/v1alpha1",
         kind: "XKube",
         matchName: s
-      } for s in _clusterNames if s != "k8s-skycluster-management"
+      } for s in _clusterNames if s != _k8sMgmtClusterName
     }
     **{"submarinerSecret" = {
         apiVersion: "v1",
