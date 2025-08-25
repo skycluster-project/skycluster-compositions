@@ -159,35 +159,43 @@ _ctrlObjDataBase = {
   } for k, ng in _ctrlNodeGroup for j in range(0, min(_maxNodeCount, ng.nodeCount))
 }
 
+# The pod subnet and the nodes' subnet should be different. 
+# I disable creating subnets for xkube as it can use the 
+# general provider subnet. Will be testing to see the potential issues. 
 #
 # Subnet [private] for all node groups
 #
-_items += [
-  opv1a1.SubnetV2{
-  "metadata": {
-    labels = _default_labels | {
-      "skycluster.io/subnet-type" = "cluster-subnet"
-    }
-    annotations = _default_annotations | {
-      **helper._set_resource_name("clusterSubnet"),
-    },
-  },
-  spec = _defaults | {
-    forProvider = {
-      name = oxr.metadata.name
-      region = _oxrProvRegion
-      cidr = oxr.spec?.podCidr
-      dnsNameservers: ["8.8.8.8", "8.8.4.4"]
-      networkIdSelector.matchLabels = {
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-        "skycluster.io/default-network" = "true"
-      }
-    },
-  }
-}]
+# _items += [
+#   opv1a1.SubnetV2{
+#   "metadata": {
+#     labels = _default_labels | {
+#       "skycluster.io/subnet-type" = "cluster-subnet"
+#     }
+#     annotations = _default_annotations | {
+#       **helper._set_resource_name("clusterSubnet"),
+#     },
+#   },
+#   spec = _defaults | {
+#     forProvider = {
+#       name = oxr.metadata.name
+#       region = _oxrProvRegion
+#       # cidr = oxr.spec?.podCidr
+#       cidr = oxr.spec?.podCidr
+#       dnsNameservers: ["8.8.8.8", "8.8.4.4"]
+#       networkIdSelector.matchLabels = {
+#         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+#         "skycluster.io/default-network" = "true"
+#       }
+#     },
+#   }
+# }]
 
-_subnetId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.id
-_networkId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.networkId
+# _subnetId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.id
+# _networkId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.networkId
+
+# Use first fetched existing subnet of the provider
+_subnetId = _xsetup?.status?.subnets[0]?.id
+_networkId = _xsetup?.status?.subnets[0]?.networkId
 
 #
 # connect subnet to the router to access the external network
@@ -195,21 +203,21 @@ _networkId = ocds?["clusterSubnet"]?.Resource?.status?.atProvider?.networkId
 _routerId = _xsetup?.status?.router?.routerId
 # Assume that the public subnet has already access to internet
 # and does not need a connection with the router
-_items += [opv1a1.RouterInterfaceV2{
-  "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
-      **helper._set_resource_name("routerInterface"),
-    },
-  },
-  spec = _defaults | {
-    forProvider = {
-      region = _oxrProvRegion
-      routerId = _routerId
-      subnetIdSelector.matchControllerRef = True
-    }
-  }
-}] if _routerId or ocds?["routerInterface"] else []
+# _items += [opv1a1.RouterInterfaceV2{
+#   "metadata": {
+#     labels = _default_labels
+#     annotations = _default_annotations | {
+#       **helper._set_resource_name("routerInterface"),
+#     },
+#   },
+#   spec = _defaults | {
+#     forProvider = {
+#       region = _oxrProvRegion
+#       routerId = _routerId
+#       subnetIdSelector.matchControllerRef = True
+#     }
+#   }
+# }] if _routerId or ocds?["routerInterface"] else []
 
 
 #
@@ -349,6 +357,7 @@ _items += [
           sudo = True
           shell = "/bin/bash -euo pipefail"
           timeoutSeconds = 600
+          # TODO: change and check setting to 10 to improve speed of convergence
           maxAttempts = 30
         }
         artifactPolicy.capture = "both"    
@@ -561,6 +570,8 @@ _items += [
 #
 # SSHTask agent ssh connection sshtask
 #
+import json
+
 _items += [
   {
     apiVersion = "ssh.crossplane.io/v1alpha1"
@@ -604,10 +615,17 @@ _items += [
             {
               name = "__K3STOKEN__",
               value = _ctrlToken,
-            },
-            {
+            }, {
               name = "__K3SHOSTIP__",
               value = _ctrlIp
+            }, {
+              name = "__NODE_LABELS__",
+              value = json.encode({
+                if v.publicAccess:
+                  "submariner.io/gateway" = "true"
+                  "skycluster.io/public-subnet" = "true"
+                "skycluster.io/instanceType" = v.instanceType
+              }),
             }
           ]
         }

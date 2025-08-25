@@ -231,6 +231,8 @@ _items += [opv1a1.RouterV2{
   spec = _defaults | {
     forProvider = {
       name = oxr.metadata.name
+      # TODO: check if external router id is not given, then:
+      externalNetworkId: oxr.spec?.externalNetwork?.networkId
     }
   } | _management_policy(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "RouterV2")
 }]
