@@ -436,6 +436,8 @@ spec:
                       "skycluster.io/default-subnet" = "true"
                     }
                   }]
+                  # This is to allow traffic forwarding
+                  portSecurityEnabled = False
                 }
               }
             }]

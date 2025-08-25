@@ -380,6 +380,8 @@ _items += [opv1a1.PortV2{
           "skycluster.io/default-subnet" = "true"
         }
       }]
+      # This is to allow traffic forwarding
+      portSecurityEnabled = False
     }
   }
 }]

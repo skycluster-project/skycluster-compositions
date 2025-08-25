@@ -71,7 +71,15 @@ _it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", 
   if _abstractFlavor else oxr.spec?.flavor
 
 _ud = oxr.spec?.userData or Undefined
-_scripts = ["routing-gateway", "ip-forwarding"]
+_scripts = ["ip-forwarding"]
+
+if not oxr.spec?.publicIp:
+  _scripts += ["routing-gateway"]
+  # we don't have the gateway IP here to perform the replacement
+  # using extra resources to load xprovider.skycluster is problematic
+  # as it may not have the labels to be filtered.
+  # So, we handle this in xinstances.<cloud> composition.
+
 _defaultUserData: any = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
 _userData = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
 

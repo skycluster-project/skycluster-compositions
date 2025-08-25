@@ -74,6 +74,8 @@ _items += [opv1a1.PortV2{
       fixedIp = [{
         subnetId = s.id
       }]
+      if oxr.spec.ipForwarding:
+        portSecurityEnabled = False
     }
   } 
 } for i, s in _subnets] 
@@ -194,6 +196,11 @@ _ready_to_create = oxr.spec.ipForwarding or \
   (oxr.spec.securityGroups and _securityGroupId) or \
   (not oxr.spec.securityGroups and _defaultSecurityGroupId)
 
+# if this instance does not have public IP it should route 
+# its traffic through provider's private IP
+_userData = oxr.spec?.userData
+_userData = _userData.replace("__GW_ADDRESS__", _xsetup?.status?.gateway?.privateIp)
+
 _items += [opv1a1.InstanceV2{
   "metadata": {
     labels = _default_labels
@@ -213,7 +220,7 @@ _items += [opv1a1.InstanceV2{
       network = [{port = _portId}]
       # SecurityGroups are not needed as we set the port security to false
       # We should handle security controls within iptables inside the host
-      userData = oxr.spec.userData
+      userData = _userData
     }
   } | helper._management_policy(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "InstanceV2")
 }] if _portId and _ready_to_create or ocds?["instance"] else []
