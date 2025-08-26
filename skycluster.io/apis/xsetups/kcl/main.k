@@ -24,6 +24,9 @@ assert _ca is not Undefined, "CA certificate must be provided in the extra resou
 _keypair = _extraRes["Secrets"]?[0]
 assert _keypair is not Undefined, "Default keypair must be provided in the extra resources"
 
+_kubeconfig_B64 = _extraRes["SecretKubeConfigs"]?[0]?.data?["kubeconfig"]
+assert _kubeconfig_B64 is not Undefined, "Kubeconfig must be provided in the extra resources"
+
 _provCfgs = _extraRes["Providers"] or []
 _helmProv = [cfg for cfg in _provCfgs if "provider-helm" in cfg.spec?.package]
 _k8sProv = [cfg for cfg in _provCfgs if "provider-kubernetes" in cfg.spec?.package]
@@ -378,78 +381,7 @@ _items += [
 # store them in a secret with name k8s-skycluster-management-cacerts
 # We fetch the generated secret for istio root-ca using extraResource
 #
-_items += [
-  k8sv1alpha2.Object{
-    metadata = {
-      labels = _default_labels | {"skycluster.io/job-type": "istio-ca-certs"}
-      annotations = _default_annotations | helper._set_resource_name("caCerts")
-    }
-    spec =  {
-      forProvider.manifest = {
-        apiVersion = "batch/v1"
-        kind = "Job"
-        metadata = { 
-          name = "istio-root-ca-certs-generator",
-          namespace = "skycluster-system",
-          labels = _default_labels | {"skycluster.io/job-type": "istio-ca-certs"},
-          annotations = _default_annotations
-        }
-        spec = {
-          backoffLimit = 0
-          template = {
-            metadata.labels = _default_labels | {
-              "skycluster.io/job-type": "istio-ca-certs"
-            }
-            spec = {
-              serviceAccountName: "skycluster-sva"
-              restartPolicy = "Never"
-              volumes = [{
-                  name = "work"
-                  emptyDir = {}
-                }, {
-                  name = "script"
-                  configMap = {
-                    name = "script-istio-root-certs"
-                    defaultMode = 0755
-                  }
-                }
-              ]
-              containers = [{
-                  name = "runner"
-                  image = "etesami/kubectl:latest"
-                  imagePullPolicy = "IfNotPresent"
-                  command = ["/bin/bash","-lc","/script/run.sh"]
-                  env = [{
-                      name = "NAMESPACE"
-                      value = "skycluster-system"
-                    }, {
-                      name = "ROOT_SECRET_NAME"
-                      value = "istio-root-ca"
-                    }, {
-                      name = "KCFG_SELECTOR"
-                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
-                    }
-                  ]
-                  volumeMounts = [{
-                      name = "work"
-                      mountPath = "/work"
-                    }, {
-                      name = "script"
-                      mountPath = "/script"
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        name = _k8sProvCfgName
-      }
-    }
-  }
-] if _k8sProvCfgName or ocds?["caCerts"] else []
+_items += [ _helper_root_ca(_kubeconfig_B64) ] if _k8sProvCfgName or ocds?["caCerts"] else []
 
 
 
@@ -533,3 +465,80 @@ extraItems = [{
 }]
 
 items = _items + dxr + extraItems
+
+
+_helper_root_ca = lambda kc {
+  k8sv1alpha2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/job-type": "istio-ca-certs"}
+      annotations = _default_annotations | helper._set_resource_name("caCerts")
+    }
+    spec =  {
+      forProvider.manifest = {
+        apiVersion = "batch/v1"
+        kind = "Job"
+        metadata = { 
+          name = "istio-root-ca-certs-generator",
+          namespace = "skycluster-system",
+          labels = _default_labels | {"skycluster.io/job-type": "istio-ca-certs"},
+          annotations = _default_annotations
+        }
+        spec = {
+          backoffLimit = 0
+          template = {
+            metadata.labels = _default_labels | {
+              "skycluster.io/job-type": "istio-ca-certs"
+            }
+            spec = {
+              serviceAccountName: "skycluster-sva"
+              restartPolicy = "Never"
+              volumes = [{
+                  name = "work"
+                  emptyDir = {}
+                }, {
+                  name = "script"
+                  configMap = {
+                    name = "script-istio-root-certs"
+                    defaultMode = 0755
+                  }
+                }
+              ]
+              containers = [{
+                  name = "runner"
+                  image = "etesami/kubectl:latest"
+                  imagePullPolicy = "IfNotPresent"
+                  command = ["/bin/bash","-lc","/script/run.sh"]
+                  env = [{
+                      name = "NAMESPACE"
+                      value = "skycluster-system"
+                    }, {
+                      name = "ROOT_SECRET_NAME"
+                      value = "istio-root-ca"
+                    }, {
+                      name = "KCFG_SELECTOR"
+                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
+                    }, {
+                      name = "KUBECONFIG_B64"
+                      value = kc
+                    }
+                  ]
+                  volumeMounts = [{
+                      name = "work"
+                      mountPath = "/work"
+                    }, {
+                      name = "script"
+                      mountPath = "/script"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+      providerConfigRef = {
+        name = _k8sProvCfgName
+      }
+    }
+  }
+}

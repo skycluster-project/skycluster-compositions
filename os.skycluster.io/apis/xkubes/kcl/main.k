@@ -220,6 +220,10 @@ _routerId = _xsetup?.status?.router?.routerId
 # }] if _routerId or ocds?["routerInterface"] else []
 
 
+_helper_replace = lambda s, r, t {
+  s.replace(r, t) if s else Undefined
+}
+
 #
 # Prepare the data structure, add additional field 
 #
@@ -255,7 +259,11 @@ _ctrlObjData = {
 
       # Comes from sshtask
       token = ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.token
-      kubeconfig_encoded = ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
+      kubeconfig_encoded = _helper_replace(
+        ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig,
+        ocds?[k]?.Resource?.status?.network?.privateIp,
+        ocds?[k]?.Resource?.status?.network?.publicIp
+      )
 
       # Comes from xinstance
       privateIp = ocds?[k]?.Resource?.status?.network?.privateIp

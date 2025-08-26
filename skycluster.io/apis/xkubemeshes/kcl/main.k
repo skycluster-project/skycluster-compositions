@@ -51,9 +51,12 @@
 import yaml
 import json
 import base64
+import datetime
+
 import helper.v1alpha1.main as helper
 import provider_kubernetes.v1alpha2 as k8sv1a2
 import provider_helm.v1beta1 as helmv1b1
+
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -108,7 +111,10 @@ _helper_cleanup_job = lambda s, c, kc, k8scfg {
   k8sv1a2.Object{
     metadata = {
       labels = _default_labels | {"skycluster.io/job-type": "cleanup-{}-{}".format(c.label, s)}
-      annotations = _default_annotations | helper._set_resource_name("cleanup-{}-{}".format(c.label, s))
+      annotations = _default_annotations | \
+        helper._set_resource_name("cleanup-{}-{}".format(c.label, s)) | {
+          "skycluster.io/creation-time" = "{}".format(datetime.ticks())
+        }
     }
     spec =  {
       forProvider.manifest = {
@@ -589,9 +595,9 @@ _chartIstio = {
       "sidecars.networking.istio.io", 
       "virtualservices.networking.istio.io", 
       "workloadentries.networking.istio.io",
-      "authorizationpolicies.networking.istio.io",
+      "authorizationpolicies.security.istio.io",
       "peerauthentications.security.istio.io",
-      "requestauthentication.security.istio.io",
+      "requestauthentications.security.istio.io",
       "telemetries.telemetry.istio.io"
     ]])
   } for n in ["base", "istiod"]
@@ -611,7 +617,12 @@ _items += [
 # For more reliable status checking, further improvements are needed.
 #
 _getReadiness = lambda oc, n {
-  True if str(oc?[n]?.Resource?.status?.atProvider?.manifest?.status?.succeeded) == "1" else False
+  now = datetime.ticks()
+  creationTime = oc?[n]?.Resource?.annotations?["skycluster.io/creation-time"]
+  t = (now - float(creationTime)) if creationTime else 0.0
+  # [objects] often do not reflect the status of the completed pod,
+  # so we wait for a max of 30 seconds (like best-effort cleanup)
+  True if t >= 30 or str(oc?[n]?.Resource?.status?.atProvider?.manifest?.status?.succeeded) == "1" else False
 }
 _submCleanupReadiness = {
   "{}".format(s) = _getReadiness(ocds, "cleanup-{}-{}".format(c.label, s)) \
@@ -663,11 +674,15 @@ _items += [
         kind = "Namespace"
         metadata = {
           name = ns
+          if ns == "skycluster":
+            labels = {
+              "istio-injection" = "enabled"
+            }
         }
       }
       providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
     }
-  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator"] \
+  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator", "skycluster"] \
       if _getCleanUpReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
 ]
 
@@ -696,7 +711,7 @@ _items += [
 # filtered by skycluster.io/secret-type=k8s-connection-data
 #
 _items += [
-  _helper_cacerts
+  _helper_cacerts()
 ] if _k8sProvCfgName or ocds?["caCerts"] else []
 
 
