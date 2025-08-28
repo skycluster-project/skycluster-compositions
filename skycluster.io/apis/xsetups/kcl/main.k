@@ -498,7 +498,7 @@ _helper_root_ca = lambda kc {
                 }, {
                   name = "script"
                   configMap = {
-                    name = "script-istio-root-certs"
+                    name = "script-kubemesh-setup"
                     defaultMode = 0755
                   }
                 }
@@ -507,7 +507,7 @@ _helper_root_ca = lambda kc {
                   name = "runner"
                   image = "etesami/kubectl:latest"
                   imagePullPolicy = "IfNotPresent"
-                  command = ["/bin/bash","-lc","/script/run.sh"]
+                  command = ["/bin/bash","-lc","/script/istio-root-ca.sh"]
                   env = [{
                       name = "NAMESPACE"
                       value = "skycluster-system"
@@ -520,6 +520,9 @@ _helper_root_ca = lambda kc {
                     }, {
                       name = "KUBECONFIG_B64"
                       value = kc
+                    }, {
+                      name = "SCRIPTS_DIR"
+                      value = "/script"
                     }
                   ]
                   volumeMounts = [{

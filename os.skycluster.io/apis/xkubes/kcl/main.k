@@ -395,17 +395,21 @@ _items += [
           apiVersion = "v1",
           kind = "Secret",
           metadata = {
-            name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.privateIp.replace(".","-")),
+            name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.publicIp.replace(".","-")),
             namespace = _ns,
             labels = _default_labels | {
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = _oxrName,
             },
-            annotations = _default_annotations,
+            annotations = _default_annotations | {
+              "skycluster.io/public-ip" = cv.publicIp,
+              "skycluster.io/private-ip" = cv.privateIp,
+            },
           },
           "type" = "Opaque",
           data = {
-            "kubeconfig" = cv.kubeconfig_encoded,
+            "kubeconfig" = base64.encode(base64.decode(cv.kubeconfig_encoded).replace(cv.privateIp, cv.publicIp)) \
+              if cv.privateIp and cv.publicIp else cv.kubeconfig_encoded,
             "token" = base64.encode(cv.token)
           }
         },
