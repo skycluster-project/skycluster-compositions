@@ -84,11 +84,22 @@ spec:
           status:
             description: XKubeStatus defines the observed state of XKube.
             properties:
+              agents:
+                items:
+                  properties:
+                    privateIp:
+                      type: string
+                    publicAccess:
+                      type: boolean
+                    publicIp:
+                      type: string
+                  type: object
+                type: array
               clusterName:
                 type: string
               clusterSecretName:
                 type: string
-              controller:
+              controllers:
                 items:
                   properties:
                     privateIp:
@@ -102,8 +113,6 @@ spec:
               podCidr:
                 type: string
               serviceCidr:
-                type: string
-              token:
                 type: string
             type: object
         required:

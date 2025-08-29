@@ -173,13 +173,15 @@ _items += [
 
 _publicIp = ocds?["xsetup"]?.Resource?.status?.gateway?.publicIp
 _privateIp = ocds?["xsetup"]?.Resource?.status?.gateway?.privateIp
+_vpcCidr = ocds?["xsetup"]?.Resource?.status?.vpc?.cidrBlock
 
 dxr = [{
   **option("params").dxr,
   status.gateway = {
     publicIp = _publicIp
     privateIp = _privateIp
-  } if _publicIp or _privateIp else Undefined
+    vpcCidr = _vpcCidr
+  } if _publicIp or _privateIp or _vpcCidr else Undefined
 }]
 
 items = _items + dxr

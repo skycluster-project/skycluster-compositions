@@ -52,8 +52,11 @@ status:
   clusterName: "name"
   # Contains kubeconfig
   clusterSecretName: "cluster-secret"
-  token: "token"
-  controller:
+  controllers:
     - privateIp: "privateIp"
       publicIp: "publicIp"
+  agents:
+    - privateIp: "privateIp"
+      publicIp: "publicIp"
+      publicAccess: true
 

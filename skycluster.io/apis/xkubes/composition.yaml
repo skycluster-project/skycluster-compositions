@@ -304,7 +304,8 @@ spec:
 
             _token = ocds?["xk8s"]?.Resource?.status?.token
             _kubeconfig = ocds?["xk8s"]?.Resource?.status?.kubeconfig
-            _controllers = ocds?["xk8s"]?.Resource?.status?.controller
+            _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
+            _agents = ocds?["xk8s"]?.Resource?.status?.agents
             _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
 
             # Create a ProviderConfig for both Kubernetes and helm
@@ -329,24 +330,29 @@ spec:
               **option("params").dxr,
               status = {
                 clusterName = ocds?["xk8s"]?.Resource?.metadata?.name
-                if _kubeconfig:
-                  kubeconfig = _kubeconfig
-                if _token:
-                  token = _token
                 if _controllers:
-                  controller = [{
+                  controllers = [{
                       privateIp = s.privateIp or Undefined
                       publicIp = s.publicIp or Undefined
+                      publicAccess = s.publicAccess or Undefined
                     } for s in _controllers
+                  ]
+                if _agents:
+                  agents = [{
+                      privateIp = s.privateIp or Undefined
+                      publicIp = s.publicIp or Undefined
+                    } for s in _agents
                   ]
                 if _clusterSecretName:
                   clusterSecretName = _clusterSecretName
                 podCidr = ocds?["xk8s"]?.Resource?.status?.podCidr or Undefined
                 serviceCidr = ocds?["xk8s"]?.Resource?.status?.serviceCidr or Undefined
                 # log = json.encode({
-                #   token = _token or "NA"
-                #   kubeconfig = _kubeconfig or "NA"
-                #   controllers = [_c.privateIp for _c in _controllers] or "NA"
+                #   controllers = [{
+                #       privateIp = s.privateIp or Undefined
+                #       publicIp = s.publicIp or Undefined
+                #     } for s in _controllers
+                #   ]
                 # })
               }
             }

@@ -268,6 +268,38 @@ spec:
               } for k, ng in _ctrlNodeGroup for j in range(0, min(_maxNodeCount, ng.nodeCount))
             }
 
+            _helper_create_instance = lambda k, c {
+              {
+                "apiVersion" = "skycluster.io/v1alpha1",
+                "kind" = "XInstance",
+                "metadata" = {
+                  labels = _default_labels | {"skycluster.io/instance-role" = "controller"}
+                  annotations = _default_annotations | {
+                    # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
+                    # changed, the resource is re-created subsequently
+                    **helper._set_resource_name(k),
+                  },
+                },
+                "spec" = {
+                  "applicationId" = _oxrAppId,
+                  "ipForwarding" = True,
+                  "image" = "ubuntu-24.04",
+                  "flavor" = c.instanceType,
+                  "publicIp" = True, # controller need to be accessible
+                  "providerRef" = {
+                    "platform" = _oxrProvPlatform,
+                    "region" = _oxrProvRegion,
+                    "zone" = _oxrProvZone
+                  },
+                  "subnets" = [{
+                    "id" = _subnetId
+                    "networkId" = _networkId
+                  }],
+                  "userData" = _userDataCtrl
+                }
+              }
+            }
+
             # The pod subnet and the nodes' subnet should be different. 
             # I disable creating subnets for xkube as it can use the 
             # general provider subnet. Will be testing to see the potential issues. 
@@ -401,37 +433,7 @@ spec:
             # specified for control-plane and create an instance for it (ignoring nodeCount)
             _instanceGate = all_true([_subnetId, _networkId])
             _items += [
-              {
-                "apiVersion" = "skycluster.io/v1alpha1",
-                "kind" = "XInstance",
-                "metadata" = {
-                  labels = _default_labels | {
-                    "skycluster.io/instance-role" = "controller"
-                  }
-                  annotations = _default_annotations | {
-                    # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
-                    # changed, the resource is re-created subsequently
-                    **helper._set_resource_name(k),
-                  },
-                },
-                "spec" = {
-                  "applicationId" = _oxrAppId,
-                  "ipForwarding" = True,
-                  "image" = "ubuntu-24.04",
-                  "flavor" = c.instanceType,
-                  "publicIp" = True, # controller need to be accessible
-                  "providerRef" = {
-                    "platform" = _oxrProvPlatform,
-                    "region" = _oxrProvRegion,
-                    "zone" = _oxrProvZone
-                  },
-                  "subnets" = [{
-                    "id" = _subnetId
-                    "networkId" = _networkId
-                  }]
-                  "userData" = _userDataCtrl
-                }
-              } for k, c in _ctrlObjData if _instanceGate or ocds?[k]
+              _helper_create_instance(k, c) for k, c in _ctrlObjData if _instanceGate or ocds?[k]
             ]
 
             #
