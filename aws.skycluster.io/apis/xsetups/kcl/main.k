@@ -32,6 +32,7 @@ assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, "Provider region, p
 assert len(oxr.spec.subnets) > 0, "At least one subnet must be specified in the XSkyCluster spec"
 
 _vpcCidr = oxr.spec.vpcCidr
+assert _vpcCidr, "VPC CIDR must be specified in the XSkyCluster spec"
 _vpcCidrParts = _vpcCidr.split("/")
 _vpcCidrIp = _vpcCidrParts[0]
 _vpcCidrOctets = _vpcCidrIp.split(".")
@@ -44,29 +45,9 @@ _tcpPorts = oxr.spec.tcpPorts
 _udpPorts = oxr.spec.udpPorts
 
 _items = []
-_items += [ec2v1beta1.VPC{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels,
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("vpc"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  }
-  spec ={
-    forProvider ={
-      cidrBlock = "{0}.{1}.0.0/{2}".format(_vpcCidrFirst, _vpcCidrSecond, "16"),
-      region = _oxrProvRegion,
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
-
+_items += [
+  _helper_vpc()
+]
 
 _subnets = []
 _subnets +=  [{
@@ -75,362 +56,40 @@ _subnets +=  [{
     "cidrBlock" = sub.cidr,
 } for i, sub in oxr.spec.subnets]
 
-_items += [ec2v1beta1.Subnet{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels,
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, "", _oxrAppId),
-      "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      cidrBlock = s.cidrBlock,
-      region = _oxrProvRegion,
-      availabilityZone = s.zone,
-      vpcIdSelector.matchControllerRef = True
-      mapPublicIpOnLaunch = True if s.type == "public" else False,
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-} for i, s in _subnets]
+_items += [_helper_subnet(i, s) for i, s in _subnets]
 
-_items += [ec2v1beta1.NetworkInterface{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      "skycluster.io/interface-id" = "network-interface",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("networkInterface"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      sourceDestCheck = False,
-      region = _oxrProvRegion,
-      subnetIdSelector = {
-        matchLabels = {
-          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-          "skycluster.io/public-subnet" = "true",
-        },
-      },
-      securityGroupSelector.matchControllerRef = True,
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_network_interface()]
 
-_items += [ec2v1beta1.InternetGateway{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("internet-gateway"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      vpcIdSelector.matchControllerRef = True
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_internet_gw()]
 
-_items += [ec2v1beta1.RouteTable{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      "skycluster.io/public-route-table" = "true",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("public-route-table"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      vpcIdSelector.matchControllerRef = True
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+#
+# Public route table
+#
+_items += [_helper_route_table("public")]
 
-_items += [ec2v1beta1.RouteTableAssociation{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      "skycluster.io/public-subnet" = "true",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("public-route-table-association"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      routeTableIdSelector = {
-        matchLabels = {
-          **helper._filter_default_labels(oxr.metadata.labels)
-          "skycluster.io/public-route-table" = "true",
-        },
-      },
-      subnetIdSelector = {
-        matchLabels = {
-          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-          "skycluster.io/public-subnet" = "true",
-        },
-      },
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_route_table_association("public")]
 
-_items += [ec2v1beta1.Route{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      "skycluster.io/public-route-table" = "true",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("public-route"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      destinationCidrBlock = "0.0.0.0/0",
-      region = _oxrProvRegion,
-      routeTableIdSelector = {
-        matchLabels = {
-          **helper._filter_default_labels(oxr.metadata.labels)
-          "skycluster.io/public-route-table" = "true",
-        },
-      },
-      gatewayIdSelector.matchControllerRef = True,
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_route("public")]
 
-# Private route table configuration
-_items += [ec2v1beta1.RouteTable{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
-      "skycluster.io/public-route-table" = "false",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("private-route-table"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      vpcIdSelector.matchControllerRef = True
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+#
+# Private route table
+#
+_items += [_helper_route_table("private")]
 
-_items += [ec2v1beta1.RouteTableAssociation{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("private-route-table-association"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      routeTableIdSelector = {
-        matchLabels = {
-          **helper._filter_default_labels(oxr.metadata.labels)
-          "skycluster.io/public-route-table" = "false",
-        },
-      },
-      subnetIdSelector = {
-        matchLabels = {
-          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-          "skycluster.io/public-subnet" = "false",
-        },
-      },
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_route_table_association("private")]
 
-_items += [ec2v1beta1.Route{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      "skycluster.io/public-route-table" = "false"
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("private-route"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      destinationCidrBlock = "0.0.0.0/0",
-      region = _oxrProvRegion,
-      routeTableIdSelector = {
-        matchLabels = {
-          **helper._filter_default_labels(oxr.metadata.labels)
-          "skycluster.io/public-route-table" = "false",
-        },
-      },
-      networkInterfaceIdSelector = {
-        matchLabels = {
-          **helper._filter_default_labels(oxr.metadata.labels)
-          "skycluster.io/interface-id" = "network-interface",
-        },
-      },
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_route("private")]
 
 # Security group configuration
-_items += [ec2v1beta1.SecurityGroup{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      "skycluster.io/secgroup-type" = "default",
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("security-group"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      vpcIdSelector.matchControllerRef = True
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_sg()]
 
-_items += [ec2v1beta1.SecurityGroupRule{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("security-group-rule-outbound"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      securityGroupIdSelector = {
-        matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
-          "skycluster.io/secgroup-type" = "default",
-        },
-      },
-      protocol = "-1",
-      fromPort = 0,
-      toPort = 0,
-      type = "egress",
-      cidrBlocks = ["0.0.0.0/0"],
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_sg_rule_outbound()]
 
-_items += [ec2v1beta1.SecurityGroupRule{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("security-group-rule-inbound-icmp"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      securityGroupIdSelector = {
-        matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
-          "skycluster.io/secgroup-type" = "default",
-        },
-      },
-      protocol = "icmp",
-      fromPort = -1,
-      toPort = -1,
-      type = "ingress",
-      cidrBlocks = ["0.0.0.0/0"],
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}]
+_items += [_helper_sg_rule_inbound_icmp()]
 
-
+#
+# Inbound TCP security group rules
+#
 _tcpPortDefaults = [
   {"fromPort" = 30000, "toPort" = 30020},
   {"fromPort" = 51820, "toPort" = 51821},
@@ -441,40 +100,7 @@ _tcpPortDefaults = _tcpPortDefaults + [
 ]
 _tcpPortsToUse = _tcpPorts if _tcpPorts else _tcpPortDefaults
 
-secGrpRulesInboundTcp = [
-  ec2v1beta1.SecurityGroupRule{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("security-group-rule-inbound-tcp-{0}-{1}".format(port.fromPort, port.toPort)),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        region = _oxrProvRegion,
-        securityGroupIdSelector = {
-          matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
-            "skycluster.io/secgroup-type" = "default",
-          },
-        },
-        protocol = "tcp",
-        fromPort = port.fromPort,
-        toPort = port.toPort,
-        type = "ingress",
-        cidrBlocks = [ "0.0.0.0/0" ],
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-    }
-  } for port in _tcpPortsToUse
-]
-_items += secGrpRulesInboundTcp
+_items += [_helper_sg_rule(port, "tcp") for port in _tcpPortsToUse]
 
 _udpPortDefaults = [
   {"fromPort" = port, "toPort" = port} 
@@ -482,98 +108,16 @@ _udpPortDefaults = [
 ]
 _udpPortsToUse = _udpPorts if _udpPorts else _udpPortDefaults
 
-secGrpRulesInboundUdp = [
-  ec2v1beta1.SecurityGroupRule{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("security-group-rule-inbound-udp-{0}-{1}".format(port.fromPort, port.toPort)),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        region = _oxrProvRegion,
-        securityGroupIdSelector = {
-          matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
-            "skycluster.io/secgroup-type" = "default",
-          },
-        },
-        protocol = "udp",
-        fromPort = port.fromPort,
-        toPort = port.toPort,
-        type = "ingress",
-        cidrBlocks = [ "0.0.0.0/0" ],
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-    }
-  } for port in _udpPortsToUse
-]
-_items += secGrpRulesInboundUdp
+#
+# Inbound UDP security group rules
+#
+_items += [_helper_sg_rule(port, "udp") for port in _udpPortsToUse]
 
 # KeyPair configuration
-_items += [ec2v1beta1.KeyPair{
-  metadata = {
-    labels = {
-      **oxr.metadata?.labels 
-      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
-    }
-    annotations = {
-      **oxr.metadata?.annotations,
-      **helper._set_resource_name("keypair"),
-      **helper._is_paused_label(oxr.metadata.labels),
-    }
-  },
-  spec = {
-    forProvider = {
-      region = _oxrProvRegion,
-      publicKey = oxr.spec?.publicKey,
-    },
-    providerConfigRef = {
-      name = _provCfg.metadata.name,
-    },
-  }
-}] if oxr.spec?.publicKey else []
+_items += [_helper_keypair("keypair")] if oxr.spec?.publicKey or ocds?["keypair"] else []
 
 # Elastic IP configuration
-_items += [
-  ec2v1beta1.EIP {
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("elasticIP"),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        domain = "vpc"
-        networkBorderGroup = ""
-        networkInterfaceSelector = {
-          matchControllerRef = True
-          matchLabels = {
-            **helper._filter_default_labels(oxr.metadata.labels)
-            "skycluster.io/interface-id" = "network-interface",
-          }
-        }
-        region = _oxrProvRegion,
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-    }
-  }
-]
+_items += [_helper_eip()]
 
 _ami = oxr.spec.gateway?.image 
 assert _ami, "Gateway image must be specified in the XSkyCluster spec"
@@ -663,5 +207,413 @@ dxr = {
   } if _publicIp or _privateIp else {},
 }
 
+#
+############### Helper Mixins ################
+#
+
 # Collect all resources into a list for output
 items = [*_items, dxr]
+
+_helper_eip = lambda {
+  ec2v1beta1.EIP {
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("elasticIP"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        domain = "vpc"
+        networkBorderGroup = ""
+        networkInterfaceSelector = {
+          matchControllerRef = True
+          matchLabels = {
+            **helper._filter_default_labels(oxr.metadata.labels)
+            "skycluster.io/interface-id" = "network-interface",
+          }
+        }
+        region = _oxrProvRegion,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_keypair = lambda s {
+  ec2v1beta1.KeyPair{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels 
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name(s),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        publicKey = oxr.spec?.publicKey,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_vpc = lambda {
+  ec2v1beta1.VPC{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("vpc"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    }
+    spec ={
+      forProvider ={
+        cidrBlock = "{0}.{1}.0.0/{2}".format(_vpcCidrFirst, _vpcCidrSecond, "16"),
+        region = _oxrProvRegion,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_subnet = lambda i, s {
+  ec2v1beta1.Subnet{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, "", _oxrAppId),
+        "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        cidrBlock = s.cidrBlock,
+        region = _oxrProvRegion,
+        availabilityZone = s.zone,
+        vpcIdSelector.matchControllerRef = True
+        mapPublicIpOnLaunch = True if s.type == "public" else False,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_network_interface = lambda {
+  ec2v1beta1.NetworkInterface{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+        "skycluster.io/interface-id" = "network-interface",
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("networkInterface"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        sourceDestCheck = False,
+        region = _oxrProvRegion,
+        subnetIdSelector = {
+          matchLabels = {
+            **helper._filter_labels(oxr.metadata.labels, [
+              "provider-platform", "provider-region", "application-id"])
+            "skycluster.io/public-subnet" = "true",
+          },
+        },
+        securityGroupSelector.matchControllerRef = True,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_internet_gw = lambda {
+  ec2v1beta1.InternetGateway{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("internet-gateway"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        vpcIdSelector.matchControllerRef = True
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_route_table = lambda t {
+  ec2v1beta1.RouteTable{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+        "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("{}-route-table".format("public" if t == "public" else "private")),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        vpcIdSelector.matchControllerRef = True
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_route_table_association = lambda t {
+  ec2v1beta1.RouteTableAssociation{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+        "skycluster.io/public-subnet" = "true" if t == "public" else "false",
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        routeTableIdSelector = {
+          matchLabels = {
+            **helper._filter_default_labels(oxr.metadata.labels)
+            "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+          },
+        },
+        subnetIdSelector = {
+          matchLabels = {
+            **helper._filter_labels(oxr.metadata.labels, [
+              "provider-platform", "provider-region", "application-id"])
+            "skycluster.io/public-subnet" = "true" if t == "public" else "false",
+          },
+        },
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_route = lambda t {
+  ec2v1beta1.Route{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+        "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("{}-route".format("public" if t == "public" else "private")),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        destinationCidrBlock = "0.0.0.0/0",
+        region = _oxrProvRegion,
+        routeTableIdSelector = {
+          matchLabels = {
+            **helper._filter_default_labels(oxr.metadata.labels)
+            "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+          },
+        },
+        if t == "public":
+          gatewayIdSelector.matchControllerRef = True,
+        if t == "private":
+          networkInterfaceIdSelector = {
+            matchLabels = {
+              **helper._filter_default_labels(oxr.metadata.labels)
+              "skycluster.io/interface-id" = "network-interface",
+            },
+          },
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_sg = lambda {
+  ec2v1beta1.SecurityGroup{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+        "skycluster.io/secgroup-type" = "default",
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("security-group"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        vpcIdSelector.matchControllerRef = True
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_sg_rule_outbound = lambda {
+  ec2v1beta1.SecurityGroupRule{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("security-group-rule-outbound"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        securityGroupIdSelector = {
+          matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
+            "skycluster.io/secgroup-type" = "default",
+          },
+        },
+        protocol = "-1",
+        fromPort = 0,
+        toPort = 0,
+        type = "egress",
+        cidrBlocks = ["0.0.0.0/0"],
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_sg_rule_inbound_icmp = lambda {
+  ec2v1beta1.SecurityGroupRule{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("security-group-rule-inbound-icmp"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        securityGroupIdSelector = {
+          matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
+            "skycluster.io/secgroup-type" = "default",
+          },
+        },
+        protocol = "icmp",
+        fromPort = -1,
+        toPort = -1,
+        type = "ingress",
+        cidrBlocks = ["0.0.0.0/0"],
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_sg_rule = lambda port, proto {
+  ec2v1beta1.SecurityGroupRule{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("security-group-rule-inbound-{}-{}-{}".format(proto, port.fromPort, port.toPort)),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        securityGroupIdSelector = {
+          matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
+            "skycluster.io/secgroup-type" = "default",
+          },
+        },
+        protocol = proto,
+        fromPort = port.fromPort,
+        toPort = port.toPort,
+        type = "ingress",
+        cidrBlocks = [ "0.0.0.0/0" ],
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}

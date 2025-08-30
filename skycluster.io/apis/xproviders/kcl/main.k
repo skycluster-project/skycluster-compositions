@@ -72,8 +72,7 @@ _items += [
     }
     spec = {
       vpcCidr = _oxrVpcCidr
-      # AWS does not support "default" subnets
-      subnets = {k=v for k, v in _oxrSubnets if k != "default"} or Undefined
+      subnets = _oxrSubnets
       publicKey = _publicKey
       gateway = {
         userData = _userData
