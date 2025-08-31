@@ -56,6 +56,9 @@ status:
   controllers:
     - privateIp: 10.135.0.23,
       publicIp: 142.1.174.183,
+  providerConfigs: 
+    k8s: example-kube-os-scinet-mcwbq
+    helm: helm-openstack-scinet-10.135.0.23
   # agents:
   #   - instanceType: m2.xlarge,
   #     publicAccess: true

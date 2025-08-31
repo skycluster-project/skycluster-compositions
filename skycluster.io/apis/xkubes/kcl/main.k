@@ -85,10 +85,10 @@ _items += [{
       region = _oxrProvRegion
       zones = _oxrProvZones
     }
-    writeConnectionSecretToRef = {
-      name = "k8s-eks-{}".format(oxr.metadata.name)
-      namespace = "skycluster-system"
-    }
+    # writeConnectionSecretToRef = {
+    #   name = "k8s-eks-{}".format(oxr.metadata.name)
+    #   namespace = "skycluster-system"
+    # }
   }
 }] if _oxrProvPlatform == "aws" else []
 
@@ -221,7 +221,7 @@ if _oxrProvPlatform == "openstack":
   _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
   _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
 if _oxrProvPlatform == "aws":
-  _clusterSecretName = ocds?["xk8s"]?.Resource?.spec?.writeConnectionSecretToRef?.name
+  _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
   _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
 
 

@@ -52,6 +52,7 @@ import yaml
 import json
 import base64
 import datetime
+import crypto
 
 import helper.v1alpha1.main as helper
 import provider_kubernetes.v1alpha2 as k8sv1a2
@@ -100,6 +101,429 @@ _default_annotations = {**oxr.metadata?.annotations}
 
 _clusterNames = oxr.spec?.clusterNames or []
 assert len(_clusterNames) > 0, "At least one cluster name must be provided in the spec.clusters"
+
+#
+# fetch referenced xkubes objects based on the cluster names (cloud-provider specific k8s)
+#
+_clusterNamesRef = [o?.Resource?.status?.clusterName for s in _clusterNames for k, obj in extra if k == s for o in obj]
+# since we have the local management cluster as part of the multi-cluster setup
+# we manually add the name of the local management cluster
+_clusterNamesRef += [_k8sMgmtClusterName]
+
+# construct helper maps for remote-secrets and remote-provider-configs
+_remoteSecretsMap: {str:{str:any}} = {
+  cn = {
+      data = s.Resource?.data
+      name = s.Resource?.metadata?.name
+    } for cn in _clusterNamesRef for s in _remoteSecrets \
+      if cn == s.Resource?.metadata?.labels?["skycluster.io/cluster-name"]
+} if _remoteSecrets else Undefined
+
+_remoteK8SKubeconfigs = {
+  cn = {
+    kubeconfig = p?.Resource?.data?["kubeconfig"]
+  } for cn in _clusterNamesRef for p in (extra?["kconfigSecrets"] or []) \
+      if cn == p?.Resource?.metadata?.labels?["skycluster.io/cluster-name"]
+}
+
+_remoteK8SProviderCfgsMap = {
+  cn = p.metadata?.name for cn in _clusterNamesRef for p in _remoteK8SProviderCfgs \
+      if cn == p.metadata?.labels?["skycluster.io/cluster-name"]
+}
+
+_remoteHelmProviderCfgsMap = {
+  cn = p.metadata?.name for cn in _clusterNamesRef for p in _remoteHelmProviderCfgs \
+      if cn == p.metadata?.labels?["skycluster.io/cluster-name"]
+}
+assert len(_remoteK8SProviderCfgsMap) == len(_remoteHelmProviderCfgsMap), \
+  "Remote K8S and Helm provider configs must exist for all clusters, found {} K8S and {} Helm configs."\
+    .format(len(_remoteK8SProviderCfgsMap), len(_remoteHelmProviderCfgsMap))
+
+# merge the two
+_remoteProviderCfgsMaps = {
+  cn = {
+    k8s = _remoteK8SProviderCfgsMap[cn]
+    helm = _remoteHelmProviderCfgsMap[cn]
+  } for cn in _remoteHelmProviderCfgsMap
+}
+
+# Retrieve xkubes pod and service cidr
+# will be used in the next step
+_xkubesRefData = {
+  o?.Resource?.status?.clusterName = {
+    podCidr = o?.Resource?.status?.podCidr
+    serviceCidr = o?.Resource?.status?.serviceCidr
+  } for s in _clusterNames for k, obj in extra if k == s for o in obj
+} | {
+  # merge with local management cluster's data
+  k = {
+    podCidr = oxr.spec?.localCluster?.podCidr
+    serviceCidr = oxr.spec?.localCluster?.serviceCidr
+  } for k in [_k8sMgmtClusterName]
+}
+
+_items = []
+
+#
+# Dummy pod for submariner issue
+#
+_items += [
+    # This is a dummy pod that is required for submariner to detect service cidr.
+    # Submariner implement a bad practice in determining service cidr where 
+    # in our case it fails.
+    _helper_dummy_pod(s) for s in _clusterNamesRef if s != _k8sMgmtClusterName
+] if _remoteK8SKubeconfigs else []
+
+######################### Cleanup Istio and Submariner ############
+
+#
+# Submariner operator, using the secret above
+# We already create istio-operator for the local kubernetes cluster
+# so we skip creation for the local cluster
+#
+
+_chartsSubm = {
+  label = "subm"
+  version = "0.20.1"
+  repo = "https://submariner-io.github.io/submariner-charts/charts"
+  name = "submariner-operator"
+  ns = "submariner-operator"
+  blocking_obj = "Submariner/submariner" # # space-separated K8s object references
+  prefix_obj = "submariner"
+}
+
+_chartIstio = {
+  n = {
+    label = n
+    version = "1.27.0"
+    repo = "https://istio-release.storage.googleapis.com/charts"
+    name = n
+    ns = "istio-system"
+    prefix_obj = "istio"
+    # space-separated K8s object references
+    blocking_obj = " ".join(["CustomResourceDefinition/{}".format(s) for s in [
+      "wasmplugins.extensions.istio.io", 
+      "destinationrules.networking.istio.io", 
+      "envoyfilters.networking.istio.io", 
+      "gateways.networking.istio.io", 
+      "proxyconfigs.networking.istio.io", 
+      "serviceentries.networking.istio.io", 
+      "sidecars.networking.istio.io", 
+      "virtualservices.networking.istio.io", 
+      "workloadentries.networking.istio.io",
+      "authorizationpolicies.security.istio.io",
+      "peerauthentications.security.istio.io",
+      "requestauthentications.security.istio.io",
+      "telemetries.telemetry.istio.io"
+    ]])
+  } for n in ["base", "istiod"]
+}
+
+_items += [
+  *[_helper_cleanup_pod(s, _chartsSubm, _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef if s != _k8sMgmtClusterName],
+  *[_helper_cleanup_pod(s, _chartIstio["base"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef],
+  *[_helper_cleanup_pod(s, _chartIstio["istiod"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef]
+]
+
+# There are two types of config status: cacerts-status, cleanup-status
+# since configmap status are filtered based on oxr.metadata.name and this object is 
+# set a their controller reference, logically there cannot be more than one of these objects
+# (i.e. one for cacerts and one for cleanups)
+_helper_filter = lambda cms, name {
+  status = [cm.Resource for cm in cms if cm.Resource.metadata?.labels?["skycluster.io/result-type"] == name]?[0] \
+    if cms else Undefined
+  { "{}".format(s) = status?.data?[s] for s in _clusterNamesRef } if status else Undefined
+}
+_cleanupBase = _helper_filter(_cmsStatus, "cleanup-base")
+_cleanupIstiod = _helper_filter(_cmsStatus, "cleanup-istiod")
+_cleanupSubm = _helper_filter(_cmsStatus, "cleanup-submariner-operator")
+_cleanupIstioReadiness = lambda s {
+  False if not _cleanupBase or not _cleanupIstiod else \
+    all_true([_cleanupBase[s] == "true", _cleanupIstiod[s] == "true"])
+}
+_cleanupSubmReadiness: (any) -> bool = lambda s {
+  False if not _cleanupSubm else _cleanupSubm[s] == "true"
+}
+_cacertsStatus = _helper_filter(_cmsStatus, "cacerts-status")
+_cacertsReadiness = lambda s {
+  False if not _cacertsStatus else _cacertsStatus[s] == "true"
+}
+_remoteSecretsStatus = _helper_filter(_cmsStatus, "remote-secret-status")
+_remoteSecretsReadiness = lambda s {
+  False if not _remoteSecretsStatus else _remoteSecretsStatus[s] == "true"
+}
+# result-type "cacerts-status" or "cleanup-base" or "cleanup-istiod", "cleanup-submariner-operator", "remote-secret-status"
+
+#
+# Istio Base using helm
+#
+
+#
+# Ensure namespace istio-system and skycluster-system exists in the remote clusters and local
+# Note: provider config for local cluster is retrieved by same filter:
+# skycluster.io/config-type = k8s-connection-data through the extraResources
+#
+_items += [
+  k8sv1a2.Object{
+    metadata = {
+      annotations =  helper._set_resource_name("ns-{}-{}".format(s,ns))
+    }
+    spec = {
+      deletionPolicy = "Orphan"
+      forProvider.manifest = {
+        apiVersion = "v1"
+        kind = "Namespace"
+        metadata = {
+          name = ns
+          if ns == "skycluster":
+            labels = {
+              "istio-injection" = "enabled"
+            }
+        }
+      }
+      providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
+    }
+  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator", "skycluster"] \
+      if _cleanupIstioReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
+]
+
+
+#
+# Pod Generating Headscale Certificate
+#
+# This job creates a POD that generates secrets for each cluster. The generated secret
+# contains generated CA certificates for the cluster and the remote-secret
+# used by istio, stored in a secret with name pattern of <secret-name>-cacerts,
+# where <secret-name> is the name of secret that contains kubeconfig data for the cluster.
+#
+# The generated secrets are identifiable by label 
+#   "skycluster.io/secret-type=istio-cluster-cacert"
+# and has a reference to its secret by
+#   "skycluster.io/cluster-name=<secret-name>"
+#
+# The generated secrets are stored in skycluster-system namespace
+# but need to be applied to the target namespace of istio-system
+# when they are created in the remote clusters.
+#
+
+
+#
+# Job: generating ca certs for each cluster, it generates certs based on secrets
+# filtered by skycluster.io/secret-type=k8s-connection-data
+# It also creates remote-secret for each cluster
+#
+# We need to recreate this pod if the list of clusters are modified
+# so we use a hash of the cluster names as the pod name
+_cacertPodName = "cacerts-{}".format(crypto.md5("".join(sorted(_clusterNamesRef))))
+_cacertPodName = _cacertPodName[:min(len(_cacertPodName),62)]
+_items += [
+  _helper_cacerts_pod(_cacertPodName)
+] if _k8sProvCfgName or ocds?[_cacertPodName] else []
+
+
+#
+# Install Istio on remote clusters
+#
+# Dealing with namespace creation is tricky, as we need to ensure that the namespace exists
+# before we can install Istio. 
+#
+# TOBE CHECKED:
+#  In my experience, "skipCreateNamespace" is not reliable
+#  to use since if it is set to True, the namespace is not created if it does not exist, 
+#  if it is set to False, the installation may fail if cannot manage the existing ones.
+#
+
+#
+# [K8S Object] Installing istio cacerts on each local cluster
+#
+_items += [
+  # TODO: may need to introduce clean-up job
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/secret-type": "remote"}
+      annotations = _default_annotations | helper._set_resource_name("cacerts-{}".format(s))
+    }
+    spec = {
+      # TODO: delete or orphan?
+      forProvider.manifest = {
+        apiVersion = "v1"
+        kind = "Secret"
+        metadata = {
+          name = "cacerts"
+          namespace = "istio-system"
+          labels = _default_labels
+          annotations = _default_annotations
+        }
+        data = {
+          "ca-cert.pem" = _remoteSecretsMap?[s]?.data?["ca-cert.pem"]
+          "ca-key.pem" = _remoteSecretsMap?[s]?.data?["ca-key.pem"]
+          "root-cert.pem" = _remoteSecretsMap?[s]?.data?["root-cert.pem"]
+          "cert-chain.pem" = _remoteSecretsMap?[s]?.data?["cert-chain.pem"]
+        }
+      }
+      providerConfigRef = {
+        name = _remoteProviderCfgsMaps[s]?.k8s
+      }
+    }
+  } for i, s in _clusterNamesRef \
+     if (_cleanupIstioReadiness(s) and _remoteSecretsMap and _remoteSecretsMap[s] and _remoteProviderCfgsMaps) \
+      or ocds?["cacerts-{}".format(s)]
+]
+
+#
+# Submariner Setup
+#
+# Create a secret for Submariner connection on a remote cluster
+# Need to get psk, brokerCA, brokerToken and apiServer, using extraResource to fetch them.
+#
+
+# Expected only one submarinerSecret
+_subSecretData = extra?["submarinerSecret"]?[0]?.Resource?.data?["values.yaml"]
+if _subSecretData:
+  assert len(extra?["submarinerSecret"]) == 1, \
+    "Expected exactly one submarinerSecret, found {}".format(len(extra?["submarinerSecret"]))
+
+_subSecret = json.decode(base64.decode(_subSecretData)) if _subSecretData else Undefined
+_apiServer = _subSecret?.broker?.server
+_psk = _subSecret?.ipsec?.psk
+_brokerCA = _subSecret?.broker?.ca
+_brokerToken = _subSecret?.broker?.token
+
+#
+# Submariner Secret for remote clusters
+# The local management cluster already have this secret
+#
+_items += [
+  # submariner-connection-secret already is setup in the management cluster
+  _helper_submariner_secret(s, _psk, _apiServer, _brokerCA, _brokerToken) \
+    for s in _clusterNamesRef \
+      if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
+        or ocds?["submSec{}".format(s)] 
+]
+
+_items += [
+  # We don't need to install submariner in the management cluster
+  _helper_subm_operator(s, _chartsSubm) \
+    for s in _clusterNamesRef \
+      if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
+        or ocds?["submOp{}".format(s)]
+]
+
+
+# # # ################# Istio Setup ###############
+
+_items += [
+  _helper_istio_base(s, _chartIstio["base"]) \
+    for s in _clusterNamesRef \
+      if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) and _remoteProviderCfgsMaps) \
+        or ocds?["istio-base-{}".format(s)]
+]
+
+# #
+# # Istio operator using helm
+# #
+_items += [
+  _helper_istio_operator(s, _chartIstio["istiod"]) for s in _clusterNamesRef \
+    if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) and _remoteProviderCfgsMaps) \
+      or ocds?["istiod-{}".format(s)]
+]
+
+#
+# Create remote secrets, it must be created after base and istio releases
+#
+_items += [
+  _helper_remote_secret_pod(s) for s in _clusterNamesRef \
+    if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
+      ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
+      _k8sProvCfgName
+]
+
+#
+# Apply remote-secret for each cluster on all other clusters
+#
+_items += [ # install secret s into cluster t
+  _helper_istio_remote_sec(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
+    if (s != t and _remoteSecretsReadiness(s) and _cleanupIstioReadiness(t) \
+        and _remoteSecretsMap and _remoteProviderCfgsMaps) \
+      or ocds?["istio-rsec-{}-{}".format(s,t)]
+] 
+
+
+
+# # ###################### dxr ######################
+
+dxr = {
+  **option("params").dxr,
+  status = {
+    clusters = [{ 
+      nameRef = s
+      providerConfigName = _remoteK8SProviderCfgsMap[s]
+      if _remoteSecretsMap:
+        secretName = _remoteSecretsMap?[s]?.name or Undefined
+    } for s in _clusterNamesRef]
+    log = json.encode(
+      {
+        "{}/{}".format(s, t) = {
+          "s" = _remoteSecretsReadiness(s)
+          t = _cleanupIstioReadiness(t)
+          b1 = True if _remoteSecretsMap else False
+          b2 = True if _remoteProviderCfgsMaps else False
+        } for s in _clusterNamesRef for t in _clusterNamesRef if (s != t)
+      }
+    )
+  }
+}
+
+extraItems = {
+  apiVersion = "meta.krm.kcl.dev/v1alpha1"
+  kind = "ExtraResources"
+  requirements = {
+    **{s = {
+        apiVersion: "skycluster.io/v1alpha1",
+        kind: "XKube",
+        matchName: s
+      } for s in _clusterNames if s != _k8sMgmtClusterName
+    }
+    **{"submarinerSecret" = {
+        apiVersion: "v1",
+        kind: "Secret",
+        matchLabels: {
+          "skycluster.io/managed-by": "skycluster",
+          "skycluster.io/config-type": "connection-secret"
+        }
+    }}
+    **{"kconfigSecrets" = {
+        apiVersion: "v1",
+        kind: "Secret",
+        matchLabels: {
+          "skycluster.io/managed-by": "skycluster",
+          "skycluster.io/secret-type": "k8s-connection-data"
+        }
+    }}
+    **{"cmsStatus" = {
+        apiVersion: "v1",
+        kind: "ConfigMap",
+        matchLabels: {
+          "skycluster.io/managed-by": "skycluster",
+          "skycluster.io/config-type": "status-result",
+          "skycluster.io/owner-uid": oxr.metadata?.uid
+        }
+    }}
+    **{"clusterRemoteSecrets" = {
+      apiVersion: "v1",
+      kind: "Secret",
+      matchLabels: {
+        "skycluster.io/managed-by": "skycluster",
+        "skycluster.io/secret-type": "cluster-cacert"
+      }
+    }}
+  }
+}
+
+items = [*_items, dxr, extraItems]
+
+
+
 
 _helper_cleanup_pod = lambda s, c, kc, k8scfg {
   k8sv1a2.Object{
@@ -329,18 +753,18 @@ _helper_remote_secret_pod = lambda s {
   }
 }
 
-_helper_cacerts_pod = lambda {
+_helper_cacerts_pod = lambda s {
   k8sv1a2.Object{
     metadata = {
       labels = _default_labels | {"skycluster.io/pod-type": "istio-cluster-ca-certs"}
-      annotations = _default_annotations | helper._set_resource_name("cacerts")
+      annotations = _default_annotations | helper._set_resource_name(s)
     }
     spec =  {
       forProvider.manifest = {
         apiVersion = "v1"
         kind = "Pod"
         metadata = { 
-          name = "istio-cluster-ca-certs-generator",
+          name = "istio-cacert-{}".format(s),
           namespace = "skycluster-system",
           labels = _default_labels | {"skycluster.io/pod-type": "istio-cluster-ca-certs"},
           annotations = _default_annotations
@@ -601,419 +1025,3 @@ _helper_istio_remote_sec = lambda s, t {
     }
   }
 }
-
-#
-# fetch referenced xkubes objects based on the cluster names (cloud-provider specific k8s)
-#
-_clusterNamesRef = [o?.Resource?.status?.clusterName for s in _clusterNames for k, obj in extra if k == s for o in obj]
-# since we have the local management cluster as part of the multi-cluster setup
-# we manually add the name of the local management cluster
-_clusterNamesRef += [_k8sMgmtClusterName]
-
-# construct helper maps for remote-secrets and remote-provider-configs
-_remoteSecretsMap: {str:{str:any}} = {
-  cn = {
-      data = s.Resource?.data
-      name = s.Resource?.metadata?.name
-    } for cn in _clusterNamesRef for s in _remoteSecrets \
-      if cn == s.Resource?.metadata?.labels?["skycluster.io/cluster-name"]
-} if _remoteSecrets else Undefined
-
-_remoteK8SKubeconfigs = {
-  cn = {
-    kubeconfig = p?.Resource?.data?["kubeconfig"]
-  } for cn in _clusterNamesRef for p in (extra?["kconfigSecrets"] or []) \
-      if cn == p?.Resource?.metadata?.labels?["skycluster.io/cluster-name"]
-}
-
-_remoteK8SProviderCfgsMap = {
-  cn = p.metadata?.name for cn in _clusterNamesRef for p in _remoteK8SProviderCfgs \
-      if cn == p.metadata?.labels?["skycluster.io/cluster-name"]
-}
-
-_remoteHelmProviderCfgsMap = {
-  cn = p.metadata?.name for cn in _clusterNamesRef for p in _remoteHelmProviderCfgs \
-      if cn == p.metadata?.labels?["skycluster.io/cluster-name"]
-}
-assert len(_remoteK8SProviderCfgsMap) == len(_remoteHelmProviderCfgsMap), \
-  "Remote K8S and Helm provider configs must exist for all clusters, found {} K8S and {} Helm configs."\
-    .format(len(_remoteK8SProviderCfgsMap), len(_remoteHelmProviderCfgsMap))
-
-# merge the two
-_remoteProviderCfgsMaps = {
-  cn = {
-    k8s = _remoteK8SProviderCfgsMap[cn]
-    helm = _remoteHelmProviderCfgsMap[cn]
-  } for cn in _remoteHelmProviderCfgsMap
-}
-
-# Retrieve xkubes pod and service cidr
-# will be used in the next step
-_xkubesRefData = {
-  o?.Resource?.status?.clusterName = {
-    podCidr = o?.Resource?.status?.podCidr
-    serviceCidr = o?.Resource?.status?.serviceCidr
-  } for s in _clusterNames for k, obj in extra if k == s for o in obj
-} | {
-  # merge with local management cluster's data
-  k = {
-    podCidr = oxr.spec?.localCluster?.podCidr
-    serviceCidr = oxr.spec?.localCluster?.serviceCidr
-  } for k in [_k8sMgmtClusterName]
-}
-
-_items = []
-
-#
-# Dummy pod for submariner issue
-#
-_items += [
-    # This is a dummy pod that is required for submariner to detect service cidr.
-    # Submariner implement a bad practice in determining service cidr where 
-    # in our case it fails.
-    _helper_dummy_pod(s) for s in _clusterNamesRef if s != _k8sMgmtClusterName
-] if _remoteK8SKubeconfigs else []
-
-######################### Cleanup Istio and Submariner ############
-
-#
-# Submariner operator, using the secret above
-# We already create istio-operator for the local kubernetes cluster
-# so we skip creation for the local cluster
-#
-
-_chartsSubm = {
-  label = "subm"
-  version = "0.20.1"
-  repo = "https://submariner-io.github.io/submariner-charts/charts"
-  name = "submariner-operator"
-  ns = "submariner-operator"
-  blocking_obj = "Submariner/submariner" # # space-separated K8s object references
-  prefix_obj = "submariner"
-}
-
-_chartIstio = {
-  n = {
-    label = n
-    version = "1.27.0"
-    repo = "https://istio-release.storage.googleapis.com/charts"
-    name = n
-    ns = "istio-system"
-    prefix_obj = "istio"
-    # space-separated K8s object references
-    blocking_obj = " ".join(["CustomResourceDefinition/{}".format(s) for s in [
-      "wasmplugins.extensions.istio.io", 
-      "destinationrules.networking.istio.io", 
-      "envoyfilters.networking.istio.io", 
-      "gateways.networking.istio.io", 
-      "proxyconfigs.networking.istio.io", 
-      "serviceentries.networking.istio.io", 
-      "sidecars.networking.istio.io", 
-      "virtualservices.networking.istio.io", 
-      "workloadentries.networking.istio.io",
-      "authorizationpolicies.security.istio.io",
-      "peerauthentications.security.istio.io",
-      "requestauthentications.security.istio.io",
-      "telemetries.telemetry.istio.io"
-    ]])
-  } for n in ["base", "istiod"]
-}
-
-_items += [
-  *[_helper_cleanup_pod(s, _chartsSubm, _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef if s != _k8sMgmtClusterName],
-  *[_helper_cleanup_pod(s, _chartIstio["base"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef],
-  *[_helper_cleanup_pod(s, _chartIstio["istiod"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef]
-]
-
-# There are two types of config status: cacerts-status, cleanup-status
-# since configmap status are filtered based on oxr.metadata.name and this object is 
-# set a their controller reference, logically there cannot be more than one of these objects
-# (i.e. one for cacerts and one for cleanups)
-_helper_filter = lambda cms, name {
-  status = [cm.Resource for cm in cms if cm.Resource.metadata?.labels?["skycluster.io/result-type"] == name]?[0] \
-    if cms else Undefined
-  { "{}".format(s) = status?.data?[s] for s in _clusterNamesRef } if status else Undefined
-}
-_cleanupBase = _helper_filter(_cmsStatus, "cleanup-base")
-_cleanupIstiod = _helper_filter(_cmsStatus, "cleanup-istiod")
-_cleanupSubm = _helper_filter(_cmsStatus, "cleanup-submariner-operator")
-_cleanupIstioReadiness = lambda s {
-  False if not _cleanupBase or not _cleanupIstiod else \
-    all_true([_cleanupBase[s] == "true", _cleanupIstiod[s] == "true"])
-}
-_cleanupSubmReadiness: (any) -> bool = lambda s {
-  False if not _cleanupSubm else _cleanupSubm[s] == "true"
-}
-_cacertsStatus = _helper_filter(_cmsStatus, "cacerts-status")
-_cacertsReadiness = lambda s {
-  False if not _cacertsStatus else _cacertsStatus[s] == "true"
-}
-_remoteSecretsStatus = _helper_filter(_cmsStatus, "remote-secret-status")
-_remoteSecretsReadiness = lambda s {
-  False if not _remoteSecretsStatus else _remoteSecretsStatus[s] == "true"
-}
-# result-type "cacerts-status" or "cleanup-base" or "cleanup-istiod", "cleanup-submariner-operator", "remote-secret-status"
-
-#
-# Istio Base using helm
-#
-
-#
-# Ensure namespace istio-system and skycluster-system exists in the remote clusters and local
-# Note: provider config for local cluster is retrieved by same filter:
-# skycluster.io/config-type = k8s-connection-data through the extraResources
-#
-_items += [
-  k8sv1a2.Object{
-    metadata = {
-      annotations =  helper._set_resource_name("ns-{}-{}".format(s,ns))
-    }
-    spec = {
-      deletionPolicy = "Orphan"
-      forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Namespace"
-        metadata = {
-          name = ns
-          if ns == "skycluster":
-            labels = {
-              "istio-injection" = "enabled"
-            }
-        }
-      }
-      providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
-    }
-  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator", "skycluster"] \
-      if _cleanupIstioReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
-]
-
-
-#
-# Pod Generating Headscale Certificate
-#
-# This job creates a POD that generates secrets for each cluster. The generated secret
-# contains generated CA certificates for the cluster and the remote-secret
-# used by istio, stored in a secret with name pattern of <secret-name>-cacerts,
-# where <secret-name> is the name of secret that contains kubeconfig data for the cluster.
-#
-# The generated secrets are identifiable by label 
-#   "skycluster.io/secret-type=istio-cluster-cacert"
-# and has a reference to its secret by
-#   "skycluster.io/cluster-name=<secret-name>"
-#
-# The generated secrets are stored in skycluster-system namespace
-# but need to be applied to the target namespace of istio-system
-# when they are created in the remote clusters.
-#
-
-
-#
-# Job: generating ca certs for each cluster, it generates certs based on secrets
-# filtered by skycluster.io/secret-type=k8s-connection-data
-# It also creates remote-secret for each cluster
-#
-_items += [
-  _helper_cacerts_pod()
-] if _k8sProvCfgName or ocds?["cacerts"] else []
-
-
-#
-# Install Istio on remote clusters
-#
-# Dealing with namespace creation is tricky, as we need to ensure that the namespace exists
-# before we can install Istio. 
-#
-# TOBE CHECKED:
-#  In my experience, "skipCreateNamespace" is not reliable
-#  to use since if it is set to True, the namespace is not created if it does not exist, 
-#  if it is set to False, the installation may fail if cannot manage the existing ones.
-#
-
-#
-# [K8S Object] Installing istio cacerts on each local cluster
-#
-_items += [
-  # TODO: may need to introduce clean-up job
-  k8sv1a2.Object{
-    metadata = {
-      labels = _default_labels | {"skycluster.io/secret-type": "remote"}
-      annotations = _default_annotations | helper._set_resource_name("cacerts-{}".format(s))
-    }
-    spec = {
-      # TODO: delete or orphan?
-      forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Secret"
-        metadata = {
-          name = "cacerts"
-          namespace = "istio-system"
-          labels = _default_labels
-          annotations = _default_annotations
-        }
-        data = {
-          "ca-cert.pem" = _remoteSecretsMap?[s]?.data?["ca-cert.pem"]
-          "ca-key.pem" = _remoteSecretsMap?[s]?.data?["ca-key.pem"]
-          "root-cert.pem" = _remoteSecretsMap?[s]?.data?["root-cert.pem"]
-          "cert-chain.pem" = _remoteSecretsMap?[s]?.data?["cert-chain.pem"]
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  } for i, s in _clusterNamesRef \
-     if (_cleanupIstioReadiness(s) and _remoteSecretsMap and _remoteSecretsMap[s] and _remoteProviderCfgsMaps) \
-      or ocds?["cacerts-{}".format(s)]
-]
-
-#
-# Submariner Setup
-#
-# Create a secret for Submariner connection on a remote cluster
-# Need to get psk, brokerCA, brokerToken and apiServer, using extraResource to fetch them.
-#
-
-# Expected only one submarinerSecret
-_subSecretData = extra?["submarinerSecret"]?[0]?.Resource?.data?["values.yaml"]
-if _subSecretData:
-  assert len(extra?["submarinerSecret"]) == 1, \
-    "Expected exactly one submarinerSecret, found {}".format(len(extra?["submarinerSecret"]))
-
-_subSecret = json.decode(base64.decode(_subSecretData)) if _subSecretData else Undefined
-_apiServer = _subSecret?.broker?.server
-_psk = _subSecret?.ipsec?.psk
-_brokerCA = _subSecret?.broker?.ca
-_brokerToken = _subSecret?.broker?.token
-
-#
-# Submariner Secret for remote clusters
-# The local management cluster already have this secret
-#
-_items += [
-  # submariner-connection-secret already is setup in the management cluster
-  _helper_submariner_secret(s, _psk, _apiServer, _brokerCA, _brokerToken) \
-    for s in _clusterNamesRef \
-      if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
-        or ocds?["submSec{}".format(s)] 
-]
-
-_items += [
-  # We don't need to install submariner in the management cluster
-  _helper_subm_operator(s, _chartsSubm) \
-    for s in _clusterNamesRef \
-      if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
-        or ocds?["submOp{}".format(s)]
-]
-
-
-# # # ################# Istio Setup ###############
-
-_items += [
-  _helper_istio_base(s, _chartIstio["base"]) \
-    for s in _clusterNamesRef \
-      if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) and _remoteProviderCfgsMaps) \
-        or ocds?["istio-base-{}".format(s)]
-]
-
-# #
-# # Istio operator using helm
-# #
-_items += [
-  _helper_istio_operator(s, _chartIstio["istiod"]) for s in _clusterNamesRef \
-    if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) and _remoteProviderCfgsMaps) \
-      or ocds?["istiod-{}".format(s)]
-]
-
-#
-# Create remote secrets, it must be created after base and istio releases
-#
-_items += [
-  _helper_remote_secret_pod(s) for s in _clusterNamesRef \
-    if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
-      ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
-      _k8sProvCfgName
-]
-
-#
-# Apply remote-secret for each cluster on all other clusters
-#
-_items += [ # install secret s into cluster t
-  _helper_istio_remote_sec(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
-    if (s != t and _remoteSecretsReadiness(s) and _cleanupIstioReadiness(t) \
-        and _remoteSecretsMap and _remoteProviderCfgsMaps) \
-      or ocds?["istio-rsec-{}-{}".format(s,t)]
-] 
-
-
-
-# # ###################### dxr ######################
-
-dxr = {
-  **option("params").dxr,
-  status = {
-    clusters = [{ 
-      nameRef = s
-      providerConfigName = _remoteK8SProviderCfgsMap[s]
-      if _remoteSecretsMap:
-        secretName = _remoteSecretsMap?[s]?.name or Undefined
-    } for s in _clusterNamesRef]
-    log = json.encode(
-      {
-        "{}/{}".format(s, t) = {
-          "s" = _remoteSecretsReadiness(s)
-          t = _cleanupIstioReadiness(t)
-          b1 = True if _remoteSecretsMap else False
-          b2 = True if _remoteProviderCfgsMaps else False
-        } for s in _clusterNamesRef for t in _clusterNamesRef if (s != t)
-      }
-    )
-  }
-}
-
-extraItems = {
-  apiVersion = "meta.krm.kcl.dev/v1alpha1"
-  kind = "ExtraResources"
-  requirements = {
-    **{s = {
-        apiVersion: "skycluster.io/v1alpha1",
-        kind: "XKube",
-        matchName: s
-      } for s in _clusterNames if s != _k8sMgmtClusterName
-    }
-    **{"submarinerSecret" = {
-        apiVersion: "v1",
-        kind: "Secret",
-        matchLabels: {
-          "skycluster.io/managed-by": "skycluster",
-          "skycluster.io/config-type": "connection-secret"
-        }
-    }}
-    **{"kconfigSecrets" = {
-        apiVersion: "v1",
-        kind: "Secret",
-        matchLabels: {
-          "skycluster.io/managed-by": "skycluster",
-          "skycluster.io/secret-type": "k8s-connection-data"
-        }
-    }}
-    **{"cmsStatus" = {
-        apiVersion: "v1",
-        kind: "ConfigMap",
-        matchLabels: {
-          "skycluster.io/managed-by": "skycluster",
-          "skycluster.io/config-type": "status-result",
-          "skycluster.io/owner-uid": oxr.metadata?.uid
-        }
-    }}
-    **{"clusterRemoteSecrets" = {
-      apiVersion: "v1",
-      kind: "Secret",
-      matchLabels: {
-        "skycluster.io/managed-by": "skycluster",
-        "skycluster.io/secret-type": "cluster-cacert"
-      }
-    }}
-  }
-}
-
-items = [*_items, dxr, extraItems]

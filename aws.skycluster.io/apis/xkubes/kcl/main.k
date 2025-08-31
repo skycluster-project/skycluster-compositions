@@ -7,7 +7,8 @@ import provider_aws.eks.v1beta2 as eksv1beta2
 import provider_aws.iam.v1beta1 as iamv1beta1
 import provider_aws.ec2.v1beta1 as ec2v1beta1
 import provider_helm.v1beta1 as helmv1beta1
-import provider_kubernetes.v1alpha1 as k8sv1alpha1
+import provider_kubernetes.v1alpha1 as k8sv1a1
+import provider_kubernetes.v1alpha2 as k8sv1a2
 
 oxr = option("params")?.oxr
 assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
@@ -31,6 +32,7 @@ _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
 _provCfg = _extraRes["ProviderConfigs"][0]
 _skySetup = _extraRes["SkySetups"][0]
+_skyK8SProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
 _xSetup = _extraRes["XSetup"][0]
 _conSecret = _extraRes["ConnectionSecrets"][0]
 _ns = "skycluster-system"
@@ -111,22 +113,47 @@ _items += [
       if helper._ready(ocds?["k8sAuth"]) or ocds?["providerConfig{}".format(t.capitalize())]
 ]
 
-_items += [{
-  apiVersion: "meta.krm.kcl.dev/v1alpha1"
-  kind: "CompositeConnectionDetails"
-  data: {
-    kubeconfig = ocds?["k8sAuth"]?.ConnectionDetails?.kubeconfig
-  } if ocds?["k8sAuth"] else {}
-}]
-
-
+# Object to store kubeconfig file
 _items += [
-  _helper_k8s_providerCfg("eksClusterConfig")
-] if helper._ready(ocds?["k8sCluster"]) or ocds?["eksClusterConfig"] else []
-
-_items += [
-  _helper_helm_providerCfg("eksClusterConfigHelm")
-] if helper._ready(ocds?["k8sCluster"]) or ocds?["eksClusterConfigHelm"] else []
+  k8sv1a2.Object{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("eksKubeconfigSecret"),
+      },
+    },
+    spec = {
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "v1",
+          kind = "Secret",
+          metadata = {
+            name = "k8s-eks-{}".format(oxr.metadata.name),
+            namespace = _ns,
+            labels = {
+              **oxr.metadata?.labels,
+              **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+              "skycluster.io/secret-type" = "k8s-connection-data",
+              "skycluster.io/cluster-name" = oxr.metadata.name,
+            },
+            annotations = {
+              **oxr.metadata?.annotations,
+            },
+          },
+          "type" = "Opaque",
+          data = {
+            "kubeconfig" = ocds?["k8sAuth"]?.ConnectionDetails?.kubeconfig,
+          }
+        },
+      },
+      providerConfigRef.name = _skyK8SProviderCfgName,
+    }
+  }
+] if ocds?["k8sAuth"]?.ConnectionDetails?.kubeconfig or ocds?["eksKubeconfigSecret"] else []
 
 
 _nodeGroupNames = [
@@ -243,13 +270,17 @@ dxr = {
     serviceCidr = oxr.spec?.serviceCidr
     podCidr = oxr.spec?.podCidr?.cidr
     # For easier access to cluster:
-    # clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
+    clusterSecretName = ocds?["eksKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
     # if _subnetId or _networkId:
       # subnet = {
       #   subnetId = _subnetId
       #   networkId = _networkId
       # }
     controllers = [{publicIp = ocds?["k8sCluster"]?.Resource?.status?.atProvider?.endpoint}]
+    providerConfigs = {
+      k8s: ocds?["providerConfigKubernetes"]?.Resource?.metadata?.name
+      helm: ocds?["providerConfigHelm"]?.Resource?.metadata?.name
+    }
     # agents = [
     #   {
     #     **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType", "publicAccess"]} 
@@ -262,7 +293,7 @@ dxr = {
     #   } for _, obj in _agentObjData
     # ]
   }
-  # status.log = yaml.encode(_dummy_log),
+  # status.log = yaml.encode(ocds?["eksKubeconfigSecret"]?.Resource?.statys?.atProvider?.manifest?.metadata?.name),
   # status.serviceCidr = _oxrServiceCidr
   # status.podCidr = "10.10.10.10/24"
 }
@@ -329,7 +360,11 @@ _helper_providerCfg = lambda t {
     apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1")
     kind = "ProviderConfig"
     metadata = {
-      # name = "skycluster"
+      labels = {
+        "skycluster.io/managed-by" = "skycluster"
+        "skycluster.io/cluster-name" = oxr.metadata.name
+        "skycluster.io/config-type" = "{}-connection-data".format("k8s" if t == "kubernetes" else "helm")
+      }
       annotations = {
         **helper._set_resource_name("providerConfig{}".format(t.capitalize()))
         "krm.kcl.dev/ready" = "True"
@@ -342,52 +377,6 @@ _helper_providerCfg = lambda t {
         key = "kubeconfig"
       }
       source = "Secret"
-    }
-  }
-}
-
-_helper_k8s_providerCfg = lambda s {
-  k8sv1alpha1.ProviderConfig {
-    metadata = {
-      labels = {"skycluster.io/managed-by": "skycluster"}
-      annotations = {
-          **oxr.metadata?.annotations,
-          **helper._set_resource_name(s),
-          "krm.kcl.dev/ready": "True"
-      }
-    }
-    spec = {
-      credentials = {
-        source = "Secret"
-        secretRef = {
-          namespace = _ns
-          name = "k8s-eks-{}".format(oxr.metadata.name)
-          key = "kubeconfig"
-        }
-      }
-    }
-  }
-}
-
-_helper_helm_providerCfg = lambda s {
-  helmv1beta1.ProviderConfig {
-    metadata = {
-      labels = {"skycluster.io/managed-by": "skycluster"}
-      annotations = {
-          **oxr.metadata?.annotations,
-          **helper._set_resource_name(s),
-          "krm.kcl.dev/ready": "True"
-      }
-    }
-    spec = {
-      credentials = {
-        source: "Secret"
-        secretRef = {
-          namespace = _ns
-          name = "k8s-eks-{}".format(oxr.metadata.name)
-          key = "kubeconfig"
-        }
-      }
     }
   }
 }
@@ -577,7 +566,7 @@ _helper_cluster_auth = lambda s {
         clusterNameSelector.matchControllerRef = True
       }
       writeConnectionSecretToRef = {
-        name = "k8s-eks-{}".format(oxr.metadata.name)
+        name = "k8s-eks-auth-{}".format(oxr.metadata.name)
         namespace = _connectionSecretNamespace
       }
     }

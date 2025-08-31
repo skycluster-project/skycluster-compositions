@@ -89,6 +89,13 @@ spec:
                 type: string
               podCidr:
                 type: string
+              providerConfigs:
+                properties:
+                  helm:
+                    type: string
+                  k8s:
+                    type: string
+                type: object
               serviceCidr:
                 type: string
             type: object
