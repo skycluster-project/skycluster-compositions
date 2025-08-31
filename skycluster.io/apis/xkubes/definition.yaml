@@ -56,7 +56,14 @@ spec:
                   type: object
                 type: array
               podCidr:
-                type: string
+                properties:
+                  cidr:
+                    type: string
+                  private:
+                    type: string
+                  public:
+                    type: string
+                type: object
               principal:
                 properties:
                   id:

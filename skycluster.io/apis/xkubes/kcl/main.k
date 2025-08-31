@@ -59,12 +59,17 @@ _items += [{
   }
   spec = {
     applicationId = oxr.spec?.applicationId or Undefined
-    serviceCidr = oxr.spec?.serviceCidr or Undefined
+    serviceCidr = oxr.spec.serviceCidr or Undefined
+    podCidr = {
+      cidr = oxr.spec.podCidr.cidr or Undefined
+      public = oxr.spec.podCidr.public or Undefined
+      private = oxr.spec.podCidr.private or Undefined
+    }
     principalArn = oxr.spec?.principal?.id or Undefined
     nodeGroups = [
       *[{
         nodeCount = 1
-        instanceType = helper._get_instance_type(_provSettings, n.instanceTypes or "2vCPU-4GB", _oxrProvZone)?[0]
+        instanceTypes = helper._get_instance_type(_provSettings, n.instanceTypes or "2vCPU-4GB", _oxrProvZone)
         publicAccess = n.publicAccess
         if n.autoScaling:
           autoScaling = {
@@ -75,32 +80,14 @@ _items += [{
         } for n in _nodeGroups
       ]
     ]
-    # nodeGroups = [
-    #   {
-    #     nodeCount = 1
-    #     instanceTypes = _nodeTypes
-    #     publicAccess = True
-    #     autoScaling = {
-    #       enabled = True
-    #       minSize = 1
-    #       maxSize = 1
-    #     }
-    #   },
-    #   {
-    #     nodeCount = 1
-    #     instanceTypes = _nodesTypes 
-    #     publicAccess = False
-    #     autoScaling = {
-    #       enabled = True
-    #       minSize = 1
-    #       maxSize = 3
-    #     }
-    #   } if _nodesTypes else {}
-    # ]
     providerRef = {
       platform = _oxrProvPlatform
       region = _oxrProvRegion
       zones = _oxrProvZones
+    }
+    writeConnectionSecretToRef = {
+      name = "k8s-eks-{}".format(oxr.metadata.name)
+      namespace = "skycluster-system"
     }
   }
 }] if _oxrProvPlatform == "aws" else []
@@ -185,7 +172,7 @@ _items += [{
   spec = {
     applicationId = oxr.spec?.applicationId or Undefined
     serviceCidr = oxr.spec?.serviceCidr or Undefined
-    podCidr = oxr.spec?.podCidr or Undefined
+    podCidr = oxr.spec?.podCidr?.cidr or Undefined
 
     nodeGroups = [
       # First node group is for controller node
@@ -229,35 +216,21 @@ _items += [{
 }] if _oxrProvPlatform == "openstack" else []
 
 
+if _oxrProvPlatform == "openstack":
+  _agents = ocds?["xk8s"]?.Resource?.status?.agents
+  _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
+  _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
+if _oxrProvPlatform == "aws":
+  _clusterSecretName = ocds?["xk8s"]?.Resource?.spec?.writeConnectionSecretToRef?.name
+  _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
 
-_token = ocds?["xk8s"]?.Resource?.status?.token
-_kubeconfig = ocds?["xk8s"]?.Resource?.status?.kubeconfig
-_controllers = ocds?["xk8s"]?.Resource?.status?.controllers
-_agents = ocds?["xk8s"]?.Resource?.status?.agents
-_clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
-
-# Create a ProviderConfig for both Kubernetes and helm
-# The kubeconfig is already stored in a secret by xkube object
-
-secret = {
-  apiVersion = "v1"
-  kind = "Secret"
-  metadata = {
-    name = "xkube-secret"
-    namespace = "default"
-  }
-  data = {
-    token = _token
-    kubeconfig = _kubeconfig
-  }
-}
 
 # ###################### dxr ######################
 
 dxr = {
   **option("params").dxr,
   status = {
-    clusterName = ocds?["xk8s"]?.Resource?.metadata?.name
+    clusterName = ocds?["xk8s"]?.Resource?.metadata?.name or Undefined
     if _controllers:
       controllers = [{
           privateIp = s.privateIp or Undefined

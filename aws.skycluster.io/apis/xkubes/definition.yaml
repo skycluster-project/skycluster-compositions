@@ -43,6 +43,15 @@ spec:
                       type: boolean
                   type: object
                 type: array
+              podCidr:
+                properties:
+                  cidr:
+                    type: string
+                  private:
+                    type: string
+                  public:
+                    type: string
+                type: object
               principalArn:
                 type: string
               providerRef:
@@ -65,7 +74,22 @@ spec:
           status:
             description: XKubeStatus defines the observed state of XKube.
             properties:
+              clusterSecretName:
+                type: string
+              controllers:
+                items:
+                  properties:
+                    privateIp:
+                      type: string
+                    publicIp:
+                      type: string
+                  type: object
+                type: array
               log:
+                type: string
+              podCidr:
+                type: string
+              serviceCidr:
                 type: string
             type: object
         required:

@@ -1,0 +1,12 @@
+provider:
+  - vpcCidr: 10.10.0.0/16 # 65534 IPs
+    podSubnet: 10.10.0.0/17 # 32766
+      public: 10.10.0.0/18
+      private: 10.10.64.0/18
+    serviceCidr: 172.10.0.0/16
+    subnets:
+      # Available cidrs: 10.10.128.0/17, Total 32766 IPs
+      - cidr: 10.10.128.0/18 # 16382 IPs
+        public: true
+      - cidr: 10.10.192.0/18 # 16382 IPs
+        public: false

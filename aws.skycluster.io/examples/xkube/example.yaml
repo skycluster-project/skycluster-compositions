@@ -10,6 +10,15 @@ metadata:
 spec: 
   applicationId: example-app
   serviceCidr: 10.0.0.0/24
+  podCidr:
+    # Overall CIDR block for the pod network.  
+    # Must encompass both the public and private subnets below.
+    cidr: 10.0.0.0/23  
+    # Public subnet (within the above CIDR) used when public IPs are required.
+    public: 10.0.0.0/24  
+    # Private subnet (within the above CIDR) used when only internal access is needed.
+    private: 10.0.1.0/24  
+
   # Principal ARN for the IAM role that has permissions to manage the cluster
   # The purpose of this role is to allow the user assuming the role to 
   # view the cluster status through the AWS console or CLI (+optional)
@@ -40,3 +49,19 @@ spec:
     # name: example-provider
 status:
   log: "This is a placeholder for the status field"
+  # TODO: Fix this
+  serviceCidr: "10.10.0.0/24"
+  podCidr: "10.10.0.0/24"
+  clusterSecretName: example-cluster-secret
+  controllers:
+    - privateIp: 10.135.0.23,
+      publicIp: 142.1.174.183,
+  # agents:
+  #   - instanceType: m2.xlarge,
+  #     publicAccess: true
+  #     agent: example-kube-os-scinet-sq56m
+  #     providerConfigs: 
+  #       ssh: ssh-openstack-scinet-10.135.0.6
+  #     ssh: example-kube-os-scinet-6zp55
+  #     privateIp: 10.135.0.6
+  #     publicIp: 142.1.174.184

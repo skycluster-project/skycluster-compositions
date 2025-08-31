@@ -89,7 +89,7 @@ spec:
             provider-helm = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             provider-kubernetes = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
-          source: |+
+          source: |-
             import json
             import yaml
             import crypto
@@ -126,50 +126,248 @@ spec:
             _xSetup = _extraRes["XSetup"][0]
             _conSecret = _extraRes["ConnectionSecrets"][0]
             _ns = "skycluster-system"
+            _connectionSecretNamespace = _ns
+            _nodeGroups = oxr.spec.nodeGroups
+            _principalArn = oxr.spec?.principalArn or Undefined
 
             _defaults = {
               deletionPolicy = "Delete"
               providerConfigRef.name = _provCfg.metadata.name
             }
 
+            _subnets = [{
+              type = "public"
+              cidrBlock = oxr.spec.podCidr.public
+              zone = oxr.spec.providerRef.zones.primary
+            }, {
+              type = "private"
+              cidrBlock = oxr.spec.podCidr.private
+              zone = oxr.spec.providerRef.zones.secondary
+            }]
+
             _items = []
 
+            _items += [_helper_role("controlplaneRole")]
+            _items += [_helper_subnet(i, s) for i, s in _subnets]
+            # Route configuration
+            # Public route table
+            _items += [_helper_route_table("public")]
+            _items += [_helper_route_table_association("public")]
+            _items += [_helper_route("public")]
+            # Private route table
+            _items += [_helper_route_table("private")]
+            _items += [_helper_route_table_association("private")]
+            _items += [_helper_route("private")]
+
+            _items += [_helper_cluster("k8sCluster")]
+
             _items += [
-              iamv1beta1.Role {
+              _helper_cluster_auth("k8sAuth")
+            ] if helper._ready(ocds?["k8sCluster"]) or ocds?["k8sAuth"] else []
+
+            _items += [
+              # The public node group is used to create nodes acting as gateways for the cluster.
+              _helper_node_group(i, ng) for i, ng in _nodeGroups
+            ] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
+
+            _items += [_helper_role_node_group("nodegroupRole")]
+
+            _items += [
+              _helper_access_entry(_principalArn),
+              _helper_access_policy_assoc(_principalArn)
+            ] if _principalArn else []
+
+
+            _items += [
+              _helper_addon_cni()
+            ] if helper._ready(ocds?["k8sAuth"]) or ocds?["vpc-cni-addon"] else []
+
+
+            _nodeGroupReadiness = any_true(
+              [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
+            )
+
+            _items += [
+              _helper_addon_csi()
+            ] if _nodeGroupReadiness or ocds?["aws-ebs-csi-driver-addon"] else []
+
+
+            _items += [
+              _helper_addon_pod_identity()
+            ] if _nodeGroupReadiness or ocds?["eks-pod-identity-agent"] else []
+
+            _providerConfigTypes = ["helm", "kubernetes"]
+            _items += [
+              _helper_providerCfg(t) \
+                for t in _providerConfigTypes \
+                  if helper._ready(ocds?["k8sAuth"]) or ocds?["providerConfig{}".format(t.capitalize())]
+            ]
+
+            _items += [{
+              apiVersion: "meta.krm.kcl.dev/v1alpha1"
+              kind: "CompositeConnectionDetails"
+              data: {
+                kubeconfig = ocds?["k8sAuth"]?.ConnectionDetails?.kubeconfig
+              } if ocds?["k8sAuth"] else {}
+            }]
+
+
+            _items += [
+              _helper_k8s_providerCfg("eksClusterConfig")
+            ] if helper._ready(ocds?["k8sCluster"]) or ocds?["eksClusterConfig"] else []
+
+            _items += [
+              _helper_helm_providerCfg("eksClusterConfigHelm")
+            ] if helper._ready(ocds?["k8sCluster"]) or ocds?["eksClusterConfigHelm"] else []
+
+
+            _nodeGroupNames = [
+              "nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i) \
+                for i, ng in _nodeGroups
+            ]
+
+            _sshSecGroupIds = [
+              ocds?[_n]?.Resource?.status?.atProvider?.resources?[0]?.remoteAccessSecurityGroupId \
+                for _n in _nodeGroupNames
+            ]
+
+            _udpPortDefaults = [{"fromPort" = port, "toPort" = port} for port in [4500 4800]]
+
+            #
+            # SecurityGroupRule
+            #
+            _items += [
+              ec2v1beta1.SecurityGroup{
+                metadata = {
+                  annotations = {
+                    **helper._set_resource_name("sshSecGroup{}".format(_i) ),
+                    "crossplane.io/external-name" = _s
+                  }
+                },
+                spec = {
+                  managementPolicies = ["Observe"]
+                  forProvider = {
+                    region = _oxrProvRegion
+                  }
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              } for _i, _s in _sshSecGroupIds
+            ] if all_true(_sshSecGroupIds) else []
+
+            #
+            # SecurityGroupRule
+            #
+            _items += [
+              ec2v1beta1.SecurityGroupRule{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                    "skycluster.io/iam-role" = "controlplane"
+                    **oxr.metadata?.labels
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
-                    **helper._set_resource_name("controlplaneRole"),
-                    **helper._is_paused_label(oxr.metadata.labels)
+                    **helper._set_resource_name("secGroupRuleUdp{}-{}-{}".format(_i, port.fromPort, port.toPort)),
+                    **helper._is_paused_label(oxr.metadata.labels),
                   }
-                }
-                spec: _defaults | {
+                },
+                spec = {
                   forProvider = {
-                    forceDetachPolicies = True
-                    managedPolicyArns = [
-                      "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-                    ]
-                    assumeRolePolicy = json.encode({
-                      Version = "2012-10-17",
-                      Statement = [
-                        {
-                          Effect = "Allow",
-                          Principal = {
-                            Service = ["eks.amazonaws.com"]
-                          },
-                          Action = ["sts:AssumeRole"]
-                        }
-                      ]
-                    })
-                  }
+                    region = _oxrProvRegion,
+                    securityGroupId = _s
+                    protocol = "udp",
+                    fromPort = port.fromPort,
+                    toPort = port.toPort,
+                    type = "ingress",
+                    cidrBlocks = [ "0.0.0.0/0" ],
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
                 }
-              },
+              } for _i, _s in _sshSecGroupIds for port in _udpPortDefaults 
+            ] if all_true(_sshSecGroupIds) else []
 
+            #
+            # SecurityGroupRule
+            #
+            _items += [
+              ec2v1beta1.SecurityGroupRule{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("secGroupRule{}".format(_i)),
+                    **helper._is_paused_label(oxr.metadata.labels),
+                  }
+                },
+                spec = {
+                  forProvider = {
+                    region = _oxrProvRegion,
+                    securityGroupId = _s
+                    protocol = "icmp",
+                    fromPort = -1,
+                    toPort = -1,
+                    type = "ingress",
+                    cidrBlocks = ["0.0.0.0/0"],
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              } for _i, _s in _sshSecGroupIds
+            ] if all_true(_sshSecGroupIds) else []
+
+
+            _dummy_log = {
+              nodeGroupNames = ",".join(_nodeGroupNames),
+              sshSecGroupIds = ",".join(_sshSecGroupIds),
+              sshGroupNames = ",".join(["sshSecGroup{}".format(_i) for _i, _s in _sshSecGroupIds])
+            }
+
+            dxr = {
+              **option("params").dxr,
+              status = {
+                serviceCidr = oxr.spec?.serviceCidr
+                podCidr = oxr.spec?.podCidr?.cidr
+                # For easier access to cluster:
+                # clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
+                # if _subnetId or _networkId:
+                  # subnet = {
+                  #   subnetId = _subnetId
+                  #   networkId = _networkId
+                  # }
+                controllers = [{publicIp = ocds?["k8sCluster"]?.Resource?.status?.atProvider?.endpoint}]
+                # agents = [
+                #   {
+                #     **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType", "publicAccess"]} 
+                #     **{k = str(v?["observed"]) for k, v in obj if k in ["ssh", "agent"]}
+                #     **{
+                #       k = {
+                #         a = str(b?["observed"]) for a, b in v
+                #       } for k, v in obj if k in ["providerConfigs"]
+                #     }
+                #   } for _, obj in _agentObjData
+                # ]
+              }
+              # status.log = yaml.encode(_dummy_log),
+              # status.serviceCidr = _oxrServiceCidr
+              # status.podCidr = "10.10.10.10/24"
+            }
+
+
+            items =  [*_items, dxr]
+
+
+            #
+            ############### Helper Mixins ###############
+            #
+
+            _helper_cluster = lambda s {
               eksv1beta2.Cluster {
                 metadata = {
                   labels = {
@@ -178,7 +376,7 @@ spec:
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
-                    **helper._set_resource_name("kubernetesCluster"),
+                    **helper._set_resource_name(s),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
                 }
@@ -204,22 +402,255 @@ spec:
                       securityGroupIdSelector = {
                         matchLabels = {
                           **helper._filter_default_labels(oxr.metadata.labels)
+                          # May need to create specific security group
                         }
                       }
                       subnetIdSelector = {
                         matchLabels = {
-                          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
+                          "skycluster.io/cluster-name" = oxr.metadata.name
                         }
                       }
                     }
                   }
                 }
               }
-            ]
+            }
 
-            _connectionSecretNamespace = _ns
+            _helper_providerCfg = lambda t {
+              {
+                apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1")
+                kind = "ProviderConfig"
+                metadata = {
+                  # name = "skycluster"
+                  annotations = {
+                    **helper._set_resource_name("providerConfig{}".format(t.capitalize()))
+                    "krm.kcl.dev/ready" = "True"
+                  }
+                }
+                spec.credentials = {
+                  secretRef = {
+                    name = "k8s-eks-{}".format(oxr.metadata.name)
+                    namespace = _connectionSecretNamespace
+                    key = "kubeconfig"
+                  }
+                  source = "Secret"
+                }
+              }
+            }
 
-            _items += [
+            _helper_k8s_providerCfg = lambda s {
+              k8sv1alpha1.ProviderConfig {
+                metadata = {
+                  labels = {"skycluster.io/managed-by": "skycluster"}
+                  annotations = {
+                      **oxr.metadata?.annotations,
+                      **helper._set_resource_name(s),
+                      "krm.kcl.dev/ready": "True"
+                  }
+                }
+                spec = {
+                  credentials = {
+                    source = "Secret"
+                    secretRef = {
+                      namespace = _ns
+                      name = "k8s-eks-{}".format(oxr.metadata.name)
+                      key = "kubeconfig"
+                    }
+                  }
+                }
+              }
+            }
+
+            _helper_helm_providerCfg = lambda s {
+              helmv1beta1.ProviderConfig {
+                metadata = {
+                  labels = {"skycluster.io/managed-by": "skycluster"}
+                  annotations = {
+                      **oxr.metadata?.annotations,
+                      **helper._set_resource_name(s),
+                      "krm.kcl.dev/ready": "True"
+                  }
+                }
+                spec = {
+                  credentials = {
+                    source: "Secret"
+                    secretRef = {
+                      namespace = _ns
+                      name = "k8s-eks-{}".format(oxr.metadata.name)
+                      key = "kubeconfig"
+                    }
+                  }
+                }
+              }
+            }
+
+            _helper_addon_pod_identity = lambda {
+              eksv1beta1.Addon{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("eks-pod-identity-agent-addon"),
+                    **helper._is_paused_label(oxr.metadata.labels)
+                  }
+                }
+                spec: _defaults | {
+                  forProvider = {
+                    region = _oxrProvRegion
+                    addonName = "eks-pod-identity-agent"
+                    clusterNameSelector.matchControllerRef = True
+                  }
+                }
+              }
+            }
+
+            _helper_addon_cni = lambda {
+              eksv1beta1.Addon{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("vpc-cni-addon"),
+                    **helper._is_paused_label(oxr.metadata.labels)
+                  }
+                }
+                spec: _defaults | {
+                  forProvider = {
+                    region = _oxrProvRegion
+                    addonName = "vpc-cni"
+                    clusterNameSelector.matchControllerRef = True
+                    # see https://github.com/aws/amazon-vpc-cni-k8s/blob/master/README.md for different options
+                    configurationValues: '{"env": {"AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG":"false"}}'
+                  }
+                }
+              }
+            }
+
+            _helper_addon_csi = lambda {
+              eksv1beta1.Addon{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("aws-ebs-csi-driver-addon"),
+                    **helper._is_paused_label(oxr.metadata.labels)
+                  }
+                }
+                spec: _defaults | {
+                  forProvider = {
+                    region = _oxrProvRegion
+                    addonName = "aws-ebs-csi-driver"
+                    clusterNameSelector.matchControllerRef = True
+                    configurationValues = '{"defaultStorageClass": {"enabled": true}}'
+                  }
+                }
+              }
+            }
+
+            _helper_access_policy_assoc = lambda arn {
+              eksv1beta1.AccessPolicyAssociation{
+                # force recreate when principalArn changes
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name(crypto.sha256("apc{}".format(arn))),
+                    **helper._is_paused_label(oxr.metadata.labels)
+                  }
+                }
+                spec: _defaults | {
+                  forProvider = {
+                    region = _oxrProvRegion
+                    accessScope: {
+                      type: "cluster"
+                    }
+                    clusterNameSelector .matchControllerRef = True
+                    policyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+                    principalArnSelector = {
+                      matchControllerRef = True
+                    }
+                  }
+                }
+              }
+            }
+
+            _helper_access_entry = lambda arn {
+              eksv1beta1.AccessEntry{
+                # force recreate when principalArn changes
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name(crypto.sha256("accEntry{}".format(arn))),
+                    **helper._is_paused_label(oxr.metadata.labels)
+                  }
+                }
+                spec: _defaults | {
+                  forProvider = {
+                    region = _oxrProvRegion
+                    clusterNameSelector = {
+                      matchControllerRef = True
+                    }
+                    type = "STANDARD"
+                    principalArn = arn
+                  }
+                }
+              }
+            }
+
+            _helper_role = lambda s {
+              iamv1beta1.Role {
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                    "skycluster.io/iam-role" = "controlplane"
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name(s),
+                    **helper._is_paused_label(oxr.metadata.labels)
+                  }
+                }
+                spec: _defaults | {
+                  forProvider = {
+                    forceDetachPolicies = True
+                    managedPolicyArns = [
+                      "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+                    ]
+                    assumeRolePolicy = json.encode({
+                      Version = "2012-10-17",
+                      Statement = [
+                        {
+                          Effect = "Allow",
+                          Principal = {
+                            Service = ["eks.amazonaws.com"]
+                          },
+                          Action = ["sts:AssumeRole"]
+                        }
+                      ]
+                    })
+                  }
+                }
+              }
+            }
+
+            _helper_cluster_auth = lambda s {
               eksv1beta1.ClusterAuth{
                 metadata = {
                   labels = {
@@ -228,7 +659,7 @@ spec:
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
-                    **helper._set_resource_name("kubernetesClusterAuth"),
+                    **helper._set_resource_name(s),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
                 }
@@ -238,17 +669,14 @@ spec:
                     clusterNameSelector.matchControllerRef = True
                   }
                   writeConnectionSecretToRef = {
-                    name = "{}-eks".format(oxr.metadata.uid)
+                    name = "k8s-eks-{}".format(oxr.metadata.name)
                     namespace = _connectionSecretNamespace
                   }
                 }
               }
-            ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["kubernetesClusterAuth"] else []
+            }
 
-
-            _nodeGroups = oxr.spec.nodeGroups
-            _items += [
-              # The public node group is used to create nodes acting as gateways for the cluster.
+            _helper_node_group = lambda i, ng {
               eksv1beta2.NodeGroup{
                 metadata = {
                   labels = {
@@ -301,16 +729,46 @@ spec:
                     }
                     instanceTypes = ng.instanceTypes or ["t3.medium"]
                     subnetIdSelector.matchLabels = {
-                      **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
                       "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
+                      "skycluster.io/cluster-name" = oxr.metadata.name
                     }
                   }
                 }
               }
-              for i, ng in _nodeGroups
-            ] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
+            }
 
-            _items += [
+            _helper_subnet = lambda i, s {
+              ec2v1beta1.Subnet{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
+                    "skycluster.io/cluster-name" = oxr.metadata.name
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
+                    **helper._is_paused_label(oxr.metadata.labels),
+                  }
+                },
+                spec = {
+                  forProvider = {
+                    cidrBlock = s.cidrBlock,
+                    region = _oxrProvRegion,
+                    availabilityZone = s.zone,
+                    vpcIdSelector.matchLabels = {
+                      **helper._filter_default_labels(oxr.metadata.labels)
+                    }
+                    mapPublicIpOnLaunch = True if s.type == "public" else False,
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              }
+            }
+
+            _helper_role_node_group = lambda s {
               iamv1beta1.Role{
                 metadata = {
                   labels = {
@@ -320,7 +778,7 @@ spec:
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
-                    **helper._set_resource_name("nodegroupRole"),
+                    **helper._set_resource_name(s),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
                 }
@@ -348,376 +806,113 @@ spec:
                   }
                 }
               }
-            ]
+            }
 
-            _principalArn = oxr.spec?.principalArn or Undefined
-
-            _items += [
-              eksv1beta1.AccessEntry{
-                # force recreate when principalArn changes
+            _helper_route_table = lambda t {
+              ec2v1beta1.RouteTable{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                    "skycluster.io/cluster-name" = oxr.metadata.name
+                    "skycluster.io/public-route-table" = "true" if t == "public" else "false",
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
-                    **helper._set_resource_name(crypto.sha256("accessEntry-{}".format(_principalArn))),
-                    **helper._is_paused_label(oxr.metadata.labels)
-                  }
-                }
-                spec: _defaults | {
-                  forProvider = {
-                    region = _oxrProvRegion
-                    clusterNameSelector = {
-                      matchControllerRef = True
-                    }
-                    type = "STANDARD"
-                    principalArn = _principalArn
-                  }
-                }
-              },
-              eksv1beta1.AccessPolicyAssociation{
-                # force recreate when principalArn changes
-                metadata = {
-                  labels = {
-                    **oxr.metadata?.labels,
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                  }
-                  annotations = {
-                    **oxr.metadata?.annotations,
-                    **helper._set_resource_name(crypto.sha256("accessPolicyAssociation-{}".format(_principalArn))),
-                    **helper._is_paused_label(oxr.metadata.labels)
-                  }
-                }
-                spec: _defaults | {
-                  forProvider = {
-                    region = _oxrProvRegion
-                    accessScope: {
-                      type: "cluster"
-                    }
-                    clusterNameSelector .matchControllerRef = True
-                    policyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-                    principalArnSelector = {
-                      matchControllerRef = True
-                    }
-                  }
-                }
-              }
-            ] if _principalArn else []
-
-
-            _items += [
-              eksv1beta1.Addon{
-                metadata = {
-                  labels = {
-                    **oxr.metadata?.labels,
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                  }
-                  annotations = {
-                    **oxr.metadata?.annotations,
-                    **helper._set_resource_name("vpc-cni-addon"),
-                    **helper._is_paused_label(oxr.metadata.labels)
-                  }
-                }
-                spec: _defaults | {
-                  forProvider = {
-                    region = _oxrProvRegion
-                    addonName = "vpc-cni"
-                    clusterNameSelector.matchControllerRef = True
-                    # see https://github.com/aws/amazon-vpc-cni-k8s/blob/master/README.md for different options
-                    configurationValues: '{"env": {"AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG":"false"}}'
-                  }
-                }
-              }
-            ] if helper._ready(ocds?["kubernetesClusterAuth"]) or ocds?["vpc-cni-addon"] else []
-
-
-            _nodeGroupReady = any_true(
-              [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
-            )
-            _items += [
-              eksv1beta1.Addon{
-                metadata = {
-                  labels = {
-                    **oxr.metadata?.labels,
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                  }
-                  annotations = {
-                    **oxr.metadata?.annotations,
-                    **helper._set_resource_name("aws-ebs-csi-driver-addon"),
-                    **helper._is_paused_label(oxr.metadata.labels)
-                  }
-                }
-                spec: _defaults | {
-                  forProvider = {
-                    region = _oxrProvRegion
-                    addonName = "aws-ebs-csi-driver"
-                    clusterNameSelector.matchControllerRef = True
-                    configurationValues = '{"defaultStorageClass": {"enabled": true}}'
-                  }
-                }
-              }
-            ] if _nodeGroupReady or ocds?["aws-ebs-csi-driver-addon"] else []
-
-
-            _items += [
-              eksv1beta1.Addon{
-                metadata = {
-                  labels = {
-                    **oxr.metadata?.labels,
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                  }
-                  annotations = {
-                    **oxr.metadata?.annotations,
-                    **helper._set_resource_name("eks-pod-identity-agent-addon"),
-                    **helper._is_paused_label(oxr.metadata.labels)
-                  }
-                }
-                spec: _defaults | {
-                  forProvider = {
-                    region = _oxrProvRegion
-                    addonName = "eks-pod-identity-agent"
-                    clusterNameSelector.matchControllerRef = True
-                  }
-                }
-              }
-            ] if _nodeGroupReady or ocds?["eks-pod-identity-agent"] else []
-
-            _providerConfigTypes = ["helm", "kubernetes"]
-            _items += [{
-              apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1")
-              kind = "ProviderConfig"
-              metadata = {
-                # name = "skycluster"
-                annotations = {
-                  **helper._set_resource_name("providerConfig{}".format(t.capitalize()))
-                  "krm.kcl.dev/ready" = "True"
-                }
-              }
-              spec.credentials = {
-                secretRef = {
-                  name = "{}-eks".format(oxr.metadata.uid)
-                  namespace = _connectionSecretNamespace
-                  key = "kubeconfig"
-                }
-                source = "Secret"
-              }
-            } for t in _providerConfigTypes if helper._ready(ocds?["kubernetesClusterAuth"]) or ocds?["providerConfig{}".format(t.capitalize())]]
-
-            _items += [{
-              apiVersion: "meta.krm.kcl.dev/v1alpha1"
-              kind: "CompositeConnectionDetails"
-              data: {
-                kubeconfig = option("params")?.ocds?["kubernetesClusterAuth"]?.ConnectionDetails?.kubeconfig
-              } if ocds?["kubernetesClusterAuth"] else {}
-            }]
-
-
-            _items += [
-              k8sv1alpha1.ProviderConfig {
-                metadata = {
-                  labels = {"skycluster.io/managed-by": "skycluster"}
-                  annotations = {
-                      **oxr.metadata?.annotations,
-                      **helper._set_resource_name("eksClusterConfig"),
-                      "krm.kcl.dev/ready": "True"
-                  }
-                }
-                spec = {
-                  credentials = {
-                    source = "Secret"
-                    secretRef = {
-                      namespace = _ns
-                      name = "{}-eks".format(oxr.metadata.uid)
-                      key = "kubeconfig"
-                    }
-                  }
-                }
-              }
-            ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["eksClusterConfig"] else []
-            _items += [
-                helmv1beta1.ProviderConfig {
-                metadata = {
-                  labels = {"skycluster.io/managed-by": "skycluster"}
-                  annotations = {
-                      **oxr.metadata?.annotations,
-                      **helper._set_resource_name("eksClusterConfigHelm"),
-                      "krm.kcl.dev/ready": "True"
-                  }
-                }
-                spec = {
-                  credentials = {
-                    source: "Secret"
-                    secretRef = {
-                      namespace = _ns
-                      name = "{}-eks".format(oxr.metadata.uid)
-                      key = "kubeconfig"
-                    }
-                  }
-                }
-              }
-            ] if helper._ready(ocds?["kubernetesCluster"]) or ocds?["eksClusterConfigHelm"] else []
-
-
-            _k8sProvCfgName = ocds?["eksClusterConfig"]?.Resource?.metadata?.name 
-            _helmProvCfgName = ocds?["eksClusterConfigHelm"]?.Resource?.metadata?.name 
-            _clusterName = ocds?["kubernetesCluster"]?.Resource?.metadata?.name 
-            _vpcCidr = _xSetup?.status?.vpc?.cidrBlock
-
-            _depReady = helper._ready(ocds?["kubernetesCluster"]) and ocds?["eksClusterConfigHelm"]
-
-            _items += [
-              helmv1beta1.Release{
-                metadata = {
-                  labels = {
-                    **oxr.metadata?.labels,
-                    "skycluster.io/managed-by": "skycluster",
-                  },
-                  annotations = {
-                    **oxr.metadata?.annotations,
-                    **helper._set_resource_name("submarinerClientCluster")
-                  }
-                }
-                spec = {
-                  forProvider = {
-                    chart = {
-                      name = "submariner-operator"
-                      repository = "https://submariner-io.github.io/submariner-charts/charts"
-                      version = "0.20.1"
-                    }
-                    namespace = "submariner-operator"
-                    skipCreateNamespace = False
-                    valuesFrom = [{
-                        secretKeyRef = {
-                          key = "values.yaml"
-                          name = _conSecret.metadata.name 
-                          namespace = _ns if _ns else "skycluster-system"
-                        }
-                    }]
-                    values = {
-                      submariner = {
-                          serviceDiscovery = "false",
-                          cableDriver = "wireguard",
-                          clusterId = _clusterName,
-                          clusterCidr = _vpcCidr,
-                          serviceCidr = _oxrServiceCidr,
-                          natEnabled = "true"
-                          debug = "true"
-                      }   
-                    }
-                  }
-                  providerConfigRef = {
-                    name = _helmProvCfgName
-                  }
-                }
-              }
-            ] if _depReady or ocds?["submarinerClientCluster"] else []
-
-
-
-            # ?.Resource?.metadata?.name 
-
-            _nodeGroupNames = ["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i) for i, ng in _nodeGroups]
-            _sshSecGroupIds = [ocds?[_n]?.Resource?.status?.atProvider?.resources?[0]?.remoteAccessSecurityGroupId for _n in _nodeGroupNames]
-            _udpPortDefaults = [{"fromPort" = port, "toPort" = port} for port in [4500 4800]]
-
-            _items += [
-              ec2v1beta1.SecurityGroup{
-                metadata = {
-                  annotations = {
-                    **helper._set_resource_name("sshSecGroup{}".format(_i) ),
-                    "crossplane.io/external-name" = _s
-                  }
-                },
-                spec = {
-                  managementPolicies = ["Observe"]
-                  forProvider = {
-                    region = _oxrProvRegion
-                  }
-                  providerConfigRef = {
-                    name = _provCfg.metadata.name,
-                  },
-                }
-              } for _i, _s in _sshSecGroupIds
-            ] if all_true(_sshSecGroupIds) else []
-
-            _items += [
-              ec2v1beta1.SecurityGroupRule{
-                metadata = {
-                  labels = {
-                    **oxr.metadata?.labels
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
-                  }
-                  annotations = {
-                    **oxr.metadata?.annotations,
-                    **helper._set_resource_name("secGroupRuleUdp{}-{}-{}".format(_i, port.fromPort, port.toPort)),
+                    **helper._set_resource_name("{}-route-table".format("public" if t == "public" else "private")),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
                 },
                 spec = {
                   forProvider = {
                     region = _oxrProvRegion,
-                    securityGroupId = _s
-                    protocol = "udp",
-                    fromPort = port.fromPort,
-                    toPort = port.toPort,
-                    type = "ingress",
-                    cidrBlocks = [ "0.0.0.0/0" ],
+                    vpcIdSelector.matchLabels = {
+                      **helper._filter_default_labels(oxr.metadata.labels)
+                    }
                   },
                   providerConfigRef = {
                     name = _provCfg.metadata.name,
                   },
                 }
-              } for _i, _s in _sshSecGroupIds for port in _udpPortDefaults 
-            ] if all_true(_sshSecGroupIds) else []
+              }
+            }
 
-            _items += [
-              ec2v1beta1.SecurityGroupRule{
+            _helper_route_table_association = lambda t {
+              ec2v1beta1.RouteTableAssociation{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels
-                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+                    "skycluster.io/cluster-name" = oxr.metadata.name
+                    "skycluster.io/public-subnet" = "true" if t == "public" else "false",
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
-                    **helper._set_resource_name("secGroupRule{}".format(_i)),
+                    **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
                 },
                 spec = {
                   forProvider = {
                     region = _oxrProvRegion,
-                    securityGroupId = _s
-                    protocol = "icmp",
-                    fromPort = -1,
-                    toPort = -1,
-                    type = "ingress",
-                    cidrBlocks = ["0.0.0.0/0"],
+                    routeTableIdSelector = {
+                      matchLabels = {
+                        "skycluster.io/cluster-name" = oxr.metadata.name
+                        "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+                      },
+                    },
+                    subnetIdSelector = {
+                      matchLabels = {
+                        "skycluster.io/cluster-name" = oxr.metadata.name
+                        "skycluster.io/public-subnet" = "true" if t == "public" else "false",
+                      },
+                    },
                   },
                   providerConfigRef = {
                     name = _provCfg.metadata.name,
                   },
                 }
-              } for _i, _s in _sshSecGroupIds
-            ] if all_true(_sshSecGroupIds) else []
-
-            _dummy_log = {
-              nodeGroupNames = ",".join(_nodeGroupNames),
-              sshSecGroupIds = ",".join(_sshSecGroupIds),
-              sshGroupNames = ",".join(["sshSecGroup{}".format(_i) for _i, _s in _sshSecGroupIds])
+              }
             }
 
-
-            dxr = {
-              **option("params").dxr,
-              status.log = yaml.encode(_dummy_log),
+            _helper_route = lambda t {
+              ec2v1beta1.Route{
+                metadata = {
+                  labels = {
+                    "skycluster.io/cluster-name" = oxr.metadata.name
+                    "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("{}-route".format("public" if t == "public" else "private")),
+                    **helper._is_paused_label(oxr.metadata.labels),
+                  }
+                },
+                spec = {
+                  forProvider = {
+                    destinationCidrBlock = "0.0.0.0/0",
+                    region = _oxrProvRegion,
+                    routeTableIdSelector = {
+                      matchLabels = {
+                        "skycluster.io/cluster-name" = oxr.metadata.name
+                        "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+                      },
+                    },
+                    if t == "public":
+                      gatewayIdSelector.matchLabels = {
+                        # TODO
+                        **helper._filter_default_labels(oxr.metadata.labels)
+                      },
+                    if t == "private":
+                      networkInterfaceIdSelector = {
+                        matchLabels = {
+                          **helper._filter_default_labels(oxr.metadata.labels)
+                          "skycluster.io/interface-id" = "network-interface",
+                        },
+                      },
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              }
             }
-
-
-            items =  [*_items, dxr]
-
-
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready

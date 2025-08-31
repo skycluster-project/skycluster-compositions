@@ -20,6 +20,14 @@ spec:
       #!/bin/bash
       echo "Initializing gateway..."
   # Subnet CIDRs should be within the VPC CIDR range
+  # Subnets are used for services and resources provisioned in the VPC
+  # They also used for Pod and service network in GKE
+
+  # Note: AWS EKS uses at least two subnets for pod networks
+  # Since we need to have a single pod cidr for sumariner setup,
+  # a manual configuration needed.
+  # We reserve half of the VPC subnet for EKS and create custom subnets
+  # to be able to manage the cidr. We let the rest of the vpc vidr for the user.
   subnets:
     - type: public
       zone: us-east-1a

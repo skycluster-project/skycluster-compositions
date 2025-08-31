@@ -176,11 +176,13 @@ _vpcCidr = ocds?["xsetup"]?.Resource?.status?.vpc?.cidrBlock
 
 dxr = [{
   **option("params").dxr,
-  status.gateway = {
-    publicIp = _publicIp
-    privateIp = _privateIp
+  status = {
+    gateway = {
+      publicIp = _publicIp
+      privateIp = _privateIp
+    } if _publicIp or _privateIp else Undefined
     vpcCidr = _vpcCidr
-  } if _publicIp or _privateIp or _vpcCidr else Undefined
+  }
 }]
 
 items = _items + dxr
