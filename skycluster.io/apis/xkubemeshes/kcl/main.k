@@ -153,6 +153,7 @@ _xkubesRefData = {
   o?.Resource?.status?.clusterName = {
     podCidr = o?.Resource?.status?.podCidr
     serviceCidr = o?.Resource?.status?.serviceCidr
+    platform = o?.Resource?.spec?.providerRef?.platform
   } for s in _clusterNames for k, obj in extra if k == s for o in obj
 } | {
   # merge with local management cluster's data
@@ -171,7 +172,8 @@ _items += [
     # This is a dummy pod that is required for submariner to detect service cidr.
     # Submariner implement a bad practice in determining service cidr where 
     # in our case it fails.
-    _helper_dummy_pod(s) for s in _clusterNamesRef if s != _k8sMgmtClusterName
+    _helper_dummy_pod(s) for s in _clusterNamesRef \
+      if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "gcp"
 ] if _remoteK8SKubeconfigs else []
 
 ######################### Cleanup Istio and Submariner ############
@@ -415,7 +417,8 @@ _items += [
 _items += [
   _helper_istio_base(s, _chartIstio["base"]) \
     for s in _clusterNamesRef \
-      if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) and _remoteProviderCfgsMaps) \
+      if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
+        and _remoteProviderCfgsMaps and _xkubesRefData[s]?.platform != "gcp") \
         or ocds?["istio-base-{}".format(s)]
 ]
 
@@ -424,7 +427,8 @@ _items += [
 # #
 _items += [
   _helper_istio_operator(s, _chartIstio["istiod"]) for s in _clusterNamesRef \
-    if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) and _remoteProviderCfgsMaps) \
+    if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
+      and _remoteProviderCfgsMaps and _xkubesRefData[s]?.platform != "gcp") \
       or ocds?["istiod-{}".format(s)]
 ]
 
@@ -435,7 +439,8 @@ _items += [
   _helper_remote_secret_pod(s) for s in _clusterNamesRef \
     if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
       ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
-      _k8sProvCfgName
+      _k8sProvCfgName and \
+      _xkubesRefData[s]?.platform != "gcp"
 ]
 
 #
@@ -461,16 +466,7 @@ dxr = {
       if _remoteSecretsMap:
         secretName = _remoteSecretsMap?[s]?.name or Undefined
     } for s in _clusterNamesRef]
-    log = json.encode(
-      {
-        "{}/{}".format(s, t) = {
-          "s" = _remoteSecretsReadiness(s)
-          t = _cleanupIstioReadiness(t)
-          b1 = True if _remoteSecretsMap else False
-          b2 = True if _remoteProviderCfgsMaps else False
-        } for s in _clusterNamesRef for t in _clusterNamesRef if (s != t)
-      }
-    )
+    log = json.encode(_xkubesRefData)
   }
 }
 

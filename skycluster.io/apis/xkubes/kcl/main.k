@@ -108,6 +108,7 @@ _items += [{
   spec = {
     applicationId = oxr.spec?.applicationId or Undefined
     serviceCidr = oxr.spec?.serviceCidr or Undefined
+    podCidr = oxr.spec?.podCidr or Undefined
 
     nodeGroups = [
       *[{
@@ -218,12 +219,9 @@ _items += [{
 
 if _oxrProvPlatform == "openstack":
   _agents = ocds?["xk8s"]?.Resource?.status?.agents
-  _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
-  _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
-if _oxrProvPlatform == "aws":
-  _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
-  _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
 
+_controllers = ocds?["xk8s"]?.Resource?.status?.controllers
+_clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
 
 # ###################### dxr ######################
 
@@ -231,6 +229,7 @@ dxr = {
   **option("params").dxr,
   status = {
     clusterName = ocds?["xk8s"]?.Resource?.metadata?.name or Undefined
+    externalClusterName = ocds?["xk8s"]?.Resource?.status?.externalClusterName or Undefined
     if _controllers:
       controllers = [{
           privateIp = s.privateIp or Undefined

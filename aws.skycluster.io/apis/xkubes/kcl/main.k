@@ -1,13 +1,10 @@
 import json
-import yaml
 import crypto
 import helper.v1alpha1.main as helper
 import provider_aws.eks.v1beta1 as eksv1beta1
 import provider_aws.eks.v1beta2 as eksv1beta2
 import provider_aws.iam.v1beta1 as iamv1beta1
 import provider_aws.ec2.v1beta1 as ec2v1beta1
-import provider_helm.v1beta1 as helmv1beta1
-import provider_kubernetes.v1alpha1 as k8sv1a1
 import provider_kubernetes.v1alpha2 as k8sv1a2
 
 oxr = option("params")?.oxr
@@ -258,12 +255,6 @@ _items += [
 ] if all_true(_sshSecGroupIds) else []
 
 
-_dummy_log = {
-  nodeGroupNames = ",".join(_nodeGroupNames),
-  sshSecGroupIds = ",".join(_sshSecGroupIds),
-  sshGroupNames = ",".join(["sshSecGroup{}".format(_i) for _i, _s in _sshSecGroupIds])
-}
-
 dxr = {
   **option("params").dxr,
   status = {
@@ -271,31 +262,14 @@ dxr = {
     podCidr = oxr.spec?.podCidr?.cidr
     # For easier access to cluster:
     clusterSecretName = ocds?["eksKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
-    # if _subnetId or _networkId:
-      # subnet = {
-      #   subnetId = _subnetId
-      #   networkId = _networkId
-      # }
+    externalClusterName = ocds?["k8sCluster"]?.Resource?.metadata?.name
     controllers = [{publicIp = ocds?["k8sCluster"]?.Resource?.status?.atProvider?.endpoint}]
     providerConfigs = {
-      k8s: ocds?["providerConfigKubernetes"]?.Resource?.metadata?.name
-      helm: ocds?["providerConfigHelm"]?.Resource?.metadata?.name
+      k8s: ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+      helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
     }
-    # agents = [
-    #   {
-    #     **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType", "publicAccess"]} 
-    #     **{k = str(v?["observed"]) for k, v in obj if k in ["ssh", "agent"]}
-    #     **{
-    #       k = {
-    #         a = str(b?["observed"]) for a, b in v
-    #       } for k, v in obj if k in ["providerConfigs"]
-    #     }
-    #   } for _, obj in _agentObjData
-    # ]
   }
   # status.log = yaml.encode(ocds?["eksKubeconfigSecret"]?.Resource?.statys?.atProvider?.manifest?.metadata?.name),
-  # status.serviceCidr = _oxrServiceCidr
-  # status.podCidr = "10.10.10.10/24"
 }
 
 
@@ -356,27 +330,52 @@ _helper_cluster = lambda s {
 }
 
 _helper_providerCfg = lambda t {
-  {
-    apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1")
-    kind = "ProviderConfig"
-    metadata = {
-      labels = {
-        "skycluster.io/managed-by" = "skycluster"
-        "skycluster.io/cluster-name" = oxr.metadata.name
-        "skycluster.io/config-type" = "{}-connection-data".format("k8s" if t == "kubernetes" else "helm")
-      }
+  # we use provider-kubernetes to enforce dependency on secrets,
+  # often the secret gets deleted and provider config and all other
+  # objects remains stall without being deleted or updated.
+  k8sv1a2.Object{
+    "metadata" = {
+      labels = {"skycluster.io/managed-by" = "skycluster"}
       annotations = {
         **helper._set_resource_name("providerConfig{}".format(t.capitalize()))
-        "krm.kcl.dev/ready" = "True"
-      }
-    }
-    spec.credentials = {
-      secretRef = {
-        name = "k8s-eks-{}".format(oxr.metadata.name)
-        namespace = _connectionSecretNamespace
-        key = "kubeconfig"
-      }
-      source = "Secret"
+      },
+    },
+    spec = {
+      references = [{
+        dependsOn = {
+          apiVersion = "v1"
+          kind = "Secret"
+          name = "k8s-eks-{}".format(oxr.metadata.name)
+          namespace = _ns
+        }
+      }]
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1"),
+          kind = "ProviderConfig",
+          metadata = {
+            name = "k8s-eks-{}".format(oxr.metadata.name),
+            namespace = _ns,
+            labels = {
+              "skycluster.io/managed-by" = "skycluster"
+              "skycluster.io/cluster-name" = oxr.metadata.name
+              "skycluster.io/config-type" = "{}-connection-data".format("k8s" if t == "kubernetes" else "helm")
+            },
+          },
+          spec = {
+            credentials = {
+              source = "Secret"
+              secretRef = {
+                name = "k8s-eks-{}".format(oxr.metadata.name)
+                namespace = _ns,
+                key = "kubeconfig"
+              }
+            }
+          }
+        },
+      },
+      providerConfigRef.name = _skyK8SProviderCfgName
     }
   }
 }

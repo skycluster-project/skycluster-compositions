@@ -43,6 +43,7 @@ status:
   serviceCidr: 10.10.10.0/24
   podCidr: 10.10.10.0/24
   clusterSecretName: example-cluster-secret
+  externalClusterName: example-cluster-secret
   subnet:
     networkId: example-network-id
     subnetId: example-subnet-id

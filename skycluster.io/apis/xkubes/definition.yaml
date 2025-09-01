@@ -57,6 +57,8 @@ spec:
                 type: array
               podCidr:
                 properties:
+                  base:
+                    type: string
                   cidr:
                     type: string
                   private:
@@ -115,6 +117,8 @@ spec:
                       type: string
                   type: object
                 type: array
+              externalClusterName:
+                type: string
               log:
                 type: string
               podCidr:

@@ -6,6 +6,7 @@ spec:
   applicationId: example-app
   serviceCidr: 10.0.0.0/24
   podCidr: 
+    base: ""
     cidr: 10.0.1.0/24
     public: ""
     private: ""
@@ -53,6 +54,7 @@ status:
   serviceCidr: "10.0.0.0/24"
   podCidr: "10.0.1.0/24"
   clusterName: "name"
+  externalClusterName: "name"
   # Contains kubeconfig
   clusterSecretName: "cluster-secret"
   controllers:

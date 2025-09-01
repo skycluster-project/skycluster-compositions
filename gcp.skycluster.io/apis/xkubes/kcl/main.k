@@ -1,15 +1,15 @@
 
 import regex as re
 import helper.v1alpha1.main as helper
-import provider_gcp.compute.v1beta1 as compute_v1b1
-import provider_gcp.compute.v1beta2 as compute_v1b2
+import provider_gcp.compute.v1beta1 as gcpv1beta1
 import provider_gcp.cloudplatform.v1beta1 as cp_v1b1
 import provider_gcp.container.v1beta1 as container_v1b1
-import provider_helm.v1beta1 as helmv1b1
 import provider_kubernetes.v1alpha1 as k8sv1a1
+import provider_kubernetes.v1alpha2 as k8sv1a2
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
+# extra = option("params")?.extraResources
 
 ctx = option("params")?.ctx
 assert ctx is not Undefined, "Context must be provided in the params"
@@ -19,6 +19,7 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 
 _skySetup = _extraRes["SkySetups"][0]
 assert _skySetup is not Undefined, "SkySetup must be provided in the extra resources"
+_skyK8SProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
 
 _provCfg = _extraRes["ProviderConfigs"]?[0]
 assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra resources"
@@ -50,54 +51,8 @@ _defaults = {
 _items = []
 
 _items += [
-  cp_v1b1.ServiceAccount{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-        "skycluster.io/composite-name" = _oxrName,
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("svcAcc"),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        displayName = _oxrName,
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-    }
-  },
-  cp_v1b1.ServiceAccountKey{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-        "skycluster.io/composite-name" = _oxrName,
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("svcAccKey"),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        serviceAccountIdSelector.matchControllerRef = True,
-      },
-      writeConnectionSecretToRef = {
-        name = "{}-sakey".format(oxr.metadata.uid),
-        namespace = _ns,
-      }
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      }
-    }
-  }
+  _helper_svc_acc("svcAcc"),
+  _helper_svc_acc_key("svcAccKey"),
 ]
 
 _svcAccEmail = ocds?["svcAcc"]?.Resource?.status?.atProvider?.email
@@ -106,201 +61,53 @@ _project = re.replace(_project, r"^projects/", "") if _project else Undefined
 _project = re.replace(_project, r"/serviceAccounts/.*$", "") if _project else Undefined
 
 _items += [
-  cp_v1b1.ProjectIAMMember{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-        "skycluster.io/composite-name" = _oxrName,
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("projectIamMember"),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        role = "roles/container.admin",
-        member = "serviceAccount:{}".format(_svcAccEmail)
-        project = _project
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-    }
-  }
+  _helper_project_iam_member("projectIamMember", _svcAccEmail, _project)
 ] if (_svcAccEmail and _project) or ocds?["projectIamMember"] else []
 
 
+_items += [_helper_subnet("subnetEks")]
+_gwPrivateIp = _xSetup.status?.gateway?.privateIp
+# _items += [_helper_routes("privateRoute", _gwPrivateIp)]
 # _project = ocds?["gkecluster"]?.Resource?.status?.atProvider?.project
 _items += [
-  container_v1b1.Cluster{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-        "skycluster.io/composite-name" = _oxrName,
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("gkecluster"),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        deletionProtection = False,
-        enableIntranodeVisibility = True,
-        initialNodeCount = 1,
-        ipAllocationPolicy = [
-          {
-            clusterSecondaryRangeName = "pods",
-            servicesSecondaryRangeName = "services",
-          }
-        ]
-        loggingService = "logging.googleapis.com/kubernetes",
-        monitoringService = "monitoring.googleapis.com/kubernetes",
-        location = _oxrProvZone,
-        networkSelector.matchLabels = {
-          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
-        }
-        subnetworkSelector.matchLabels = {
-          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
-          "skycluster.io/default-subnet" = "true"
-        }
-        nodeConfig = [
-          {
-            serviceAccount = _svcAccEmail
-          }
-        ]
-        # nodeVersion "latest"
-        # minMasterVersion = "latest"
-        workloadIdentityConfig = [
-          {
-            workloadPool = "{}.svc.id.goog".format(_project) if _project else Undefined
-          }
-        ]
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-      writeConnectionSecretToRef = {
-        name = "{}-gkecluster".format(oxr.metadata.uid),
-        namespace = _ns,
-      },
-    },
-  }
+  _helper_cluster("gkecluster", _svcAccEmail, _project)
 ] if (_project and _svcAccEmail) or ocds?["gkecluster"] else []
 
 _nodeGroups = oxr.spec.nodeGroups
 _nodeGroupsExists = any_true([ocds?["nodePool{}".format(i)] or False for i, _ in _nodeGroups])
 
-_items += [
-  container_v1b1.NodePool{
-    metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-        "skycluster.io/composite-name" = _oxrName,
-      }
-      annotations = {
-        **oxr.metadata?.annotations,
-        **helper._set_resource_name("nodePool{}".format(i)),
-        **helper._is_paused_label(oxr.metadata.labels),
-      }
-    },
-    spec = {
-      forProvider = {
-        location = _oxrProvZone,
-        autoscaling = [
-          {
-            minNodeCount = ng.autoscaling?.minSize or 1,
-            maxNodeCount = ng.autoscaling?.maxSize or 3,
-          }
-        ]
-        clusterSelector.matchControllerRef = True
-        initialNodeCount = 1
-        management = [
-          {
-            autoRepair = True,
-            autoUpgrade = True,
-          }
-        ]
-        maxPodsPerNode = 55
-        nodeConfig = [
-          {
-            diskSizeGb = 20,
-            diskType = "pd-standard",
-            imageType = "COS_CONTAINERD",
-            machineType = ng.instanceType or "e2-medium",
-            metadata.disableLegacyEndpoints = "true",
-            oauthScopes = [
-              "https://www.googleapis.com/auth/cloud-platform"
-            ],
-            preemptible = True,
-            shieldedInstanceConfig: [
-              {
-                enableIntegrityMonitoring = True,
-                enableSecureBoot = True,
-              }
-            ]
-            serviceAccount = _svcAccEmail,
-            metadata = {
-              "disable-legacy-endpoints" = "true",
-            }
-          }
-        ]
-      },
-      providerConfigRef = {
-        name = _provCfg.metadata.name,
-      },
-    },
-  } for i, ng in _nodeGroups
-] if _svcAccEmail or _nodeGroupsExists else []
+# _items += [
+#   _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups
+# ] if _svcAccEmail or _nodeGroupsExists else []
 
 _providerConfigTypes = ["helm", "kubernetes"]
-_items += [{
-  apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1")
-  kind = "ProviderConfig"
-  metadata = {
-    annotations = {
-      **helper._set_resource_name("providerConfig{}".format(t.capitalize()))
-      "krm.kcl.dev/ready" = "True"
-    }
-  }
-  spec = {
-    credentials = {
-      secretRef = {
-        name = "{}-gkecluster".format(oxr.metadata.uid),
-        namespace = _ns
-        key = "kubeconfig"
-      }
-      source = "Secret"
-    }
-    identity = {
-      secretRef = {
-        name = "{}-sakey".format(oxr.metadata.uid),
-        namespace = _ns
-        key = "private_key"
-      }
-      source = "Secret"
-      type = "GoogleApplicationCredentials"
-    }
-  }
-} for t in _providerConfigTypes if helper._ready(ocds?["gkecluster"]) or ocds?["providerConfig{}".format(t.capitalize())]]
+_items += [
+  _helper_providerCfg(t) \
+    for t in _providerConfigTypes \
+      if helper._ready(ocds?["gkecluster"]) or ocds?["providerConfig{}".format(t.capitalize())]
+]
 
-_items += [{
-  apiVersion: "meta.krm.kcl.dev/v1alpha1"
-  kind: "CompositeConnectionDetails"
-  data: {
-    kubeconfig = option("params")?.ocds?["gkecluster"]?.ConnectionDetails?.kubeconfig
-  } if ocds?["gkecluster"] else {}
-}]
+# _items += [{
+#   apiVersion: "meta.krm.kcl.dev/v1alpha1"
+#   kind: "CompositeConnectionDetails"
+#   data: {
+#     kubeconfig = option("params")?.ocds?["gkecluster"]?.ConnectionDetails?.kubeconfig
+#   } if ocds?["gkecluster"] else {}
+# }]
 
-_k8sProvCfgName = ocds?["providerConfigKubernetes"]?.Resource?.metadata?.name 
-_helmProvCfgName = ocds?["providerConfigHelm"]?.Resource?.metadata?.name 
+# Object to store kubeconfig file
+_kubeconfig = option("params")?.ocds?["gkecluster"]?.ConnectionDetails?.kubeconfig
+_privateKey = option("params")?.ocds?["svcAccKey"]?.ConnectionDetails?.private_key
+_items += [
+  _helper_k8s_secret("gkeKubeconfigSecret", _kubeconfig, _privateKey)
+] if _kubeconfig or ocds?["gkeKubeconfigSecret"] else []
 
+_k8sProvCfgName = ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name 
+_helmProvCfgName = ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name 
+
+#
+# Workload identity on the GKE
+#
 _items += [
   k8sv1a1.Object{
     metadata = {
@@ -340,12 +147,417 @@ _items += [
 ] if (helper._ready(ocds?["gkecluster"]) and _k8sProvCfgName) or ocds?["workloadIdentitySettings"] else []
 
 
+# _defaultSubnetStatus = extra?.defaultSubnet?[0]?.Resource?.status
+# _cidrs = {s.rangeName = s.ipCidrRange for s in _defaultSubnetStatus?.atProvider?.secondaryIpRange}
+
 dxr = {
   **option("params").dxr,
-  # status.network = {
-  #   privateIp = _privateAddress
-  #   publicIp = _publicAddress
-  # } if _privateAddress or _publicAddress else Undefined,
+  status = {
+    serviceCidr = ocds?["gkecluster"]?.Resource?.status?.atProvider?.servicesIpv4Cidr
+    podCidr = ocds?["gkecluster"]?.Resource?.status?.atProvider?.clusterIpv4Cidr
+    externalClusterName = ocds?["gkecluster"]?.Resource?.metadata?.name
+    # For easier access to cluster:
+    clusterSecretName = ocds?["gkeKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+    controllers = [{publicIp = ocds?["gkecluster"]?.Resource?.status?.atProvider?.endpoint}]
+    providerConfigs = {
+      k8s: ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+      helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+    }
+  }
 }
 
+
+# extraResources = {
+#   apiVersion: "meta.krm.kcl.dev/v1alpha1"
+#   kind: "ExtraResources"
+#   requirements = {
+#     defaultSubnet = {
+#       apiVersion: "compute.gcp.upbound.io",
+#       kind: "Subnetwork",
+#       matchLabels: {
+#         **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
+#         "skycluster.io/default-subnet" = "true"
+#       }
+#     }
+#   }
+# }
+
+
 items = [*_items, dxr]
+
+
+_helper_svc_acc = lambda s {
+  cp_v1b1.ServiceAccount{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/composite-name" = _oxrName,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name(s),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        displayName = _oxrName,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_svc_acc_key = lambda s {
+  cp_v1b1.ServiceAccountKey{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/composite-name" = _oxrName,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("{}".format(s)),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        serviceAccountIdSelector.matchControllerRef = True,
+      },
+      writeConnectionSecretToRef = {
+        name = "k8s-gke-sa-{}".format(oxr.metadata.name),
+        # name = "{}-sakey".format(oxr.metadata.uid),
+        namespace = _ns,
+      }
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      }
+    }
+  }
+}
+
+_helper_project_iam_member = lambda s, e, p {
+  cp_v1b1.ProjectIAMMember{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/composite-name" = _oxrName,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name(s),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        role = "roles/container.admin",
+        member = "serviceAccount:{}".format(_svcAccEmail)
+        project = p
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_cluster = lambda s, e, p {
+  container_v1b1.Cluster{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/composite-name" = _oxrName,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name(s),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        deletionProtection = False,
+        enableIntranodeVisibility = True,
+        initialNodeCount = 1,
+        ipAllocationPolicy = [
+          {
+            # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
+            # servicesIpv4CidrBlock = oxr.spec.serviceCidr
+            clusterSecondaryRangeName = "pods",
+            servicesSecondaryRangeName = "services",
+          }
+        ]
+        loggingService = "logging.googleapis.com/kubernetes",
+        monitoringService = "monitoring.googleapis.com/kubernetes",
+        location = _oxrProvZone,
+        networkSelector.matchLabels = {
+          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]) 
+          "skycluster.io/managed-by" = "skycluster"
+        }
+        subnetworkSelector.matchLabels = {
+          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
+          "skycluster.io/cluster-name" = oxr.metadata.name
+        }
+        nodeConfig = [
+          {
+            diskSizeGb = 20,
+            diskType = "pd-standard",
+            imageType = "COS_CONTAINERD",
+            machineType = "e2-medium",
+            labels = {
+              "submariner.io/gateway" = "true"
+            }
+            metadata.disableLegacyEndpoints = "true",
+            oauthScopes = [
+              "https://www.googleapis.com/auth/cloud-platform"
+            ],
+            preemptible = True,
+            shieldedInstanceConfig: [
+              {
+                enableIntegrityMonitoring = True,
+                enableSecureBoot = True,
+              }
+            ]
+            serviceAccount = e,
+            metadata = {
+              "disable-legacy-endpoints" = "true",
+            }
+          }
+        ]
+        # nodeVersion "latest"
+        # minMasterVersion = "latest"
+        workloadIdentityConfig = [
+          {
+            workloadPool = "{}.svc.id.goog".format(p) if p else Undefined
+          }
+        ]
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+      writeConnectionSecretToRef = {
+        name = "k8s-gke-auth-{}".format(oxr.metadata.name),
+        # name = "{}-gkecluster".format(oxr.metadata.uid),
+        namespace = _ns,
+      },
+    },
+  }
+}
+
+_helper_node_group = lambda i, ng, e {
+  container_v1b1.NodePool{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/composite-name" = _oxrName,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("nodePool{}".format(i)),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        location = _oxrProvZone,
+        autoscaling = [
+          {
+            minNodeCount = ng.autoscaling?.minSize or 1,
+            maxNodeCount = ng.autoscaling?.maxSize or 3,
+          }
+        ]
+        clusterSelector.matchControllerRef = True
+        initialNodeCount = 1
+        management = [
+          {
+            autoRepair = True,
+            autoUpgrade = True,
+          }
+        ]
+        maxPodsPerNode = 55
+        nodeConfig = [
+          {
+            diskSizeGb = 20,
+            diskType = "pd-standard",
+            imageType = "COS_CONTAINERD",
+            machineType = ng.instanceType or "e2-medium",
+            if ng.publicAccess:
+              labels = {
+                "submariner.io/gateway" = "true"
+              }
+            metadata.disableLegacyEndpoints = "true",
+            oauthScopes = [
+              "https://www.googleapis.com/auth/cloud-platform"
+            ],
+            preemptible = True,
+            shieldedInstanceConfig: [
+              {
+                enableIntegrityMonitoring = True,
+                enableSecureBoot = True,
+              }
+            ]
+            serviceAccount = e,
+            metadata = {
+              "disable-legacy-endpoints" = "true",
+            }
+          }
+        ]
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    },
+  }
+}
+
+_helper_subnet = lambda s {
+  gcpv1beta1.Subnetwork{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        "skycluster.io/cluster-name" = oxr.metadata.name
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name(s),
+      }
+    }
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        # if s.default:
+        ipCidrRange = oxr.spec.podCidr.base,
+        secondaryIpRange = [
+          {
+            ipCidrRange = oxr.spec.podCidr.cidr
+            rangeName = "pods"
+          },
+          {
+            ipCidrRange = oxr.spec.serviceCidr
+            rangeName = "services"
+          }
+        ]
+        # else:
+        networkSelector.matchLabels = {
+          **helper._filter_default_labels(oxr.metadata.labels)
+        }
+        privateIpGoogleAccess = True,
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_k8s_secret = lambda s, kubeconf, pk {
+  k8sv1a2.Object{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name(s),
+      },
+    },
+    spec = {
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "v1",
+          kind = "Secret",
+          metadata = {
+            name = "k8s-gke-{}".format(oxr.metadata.name),
+            namespace = _ns,
+            labels = {
+              **oxr.metadata?.labels,
+              **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+              "skycluster.io/secret-type" = "k8s-connection-data",
+              "skycluster.io/cluster-name" = oxr.metadata.name,
+            },
+            annotations = {
+              **oxr.metadata?.annotations,
+            },
+          },
+          "type" = "Opaque",
+          data = {
+            "kubeconfig" = kubeconf
+            "privateKey" = pk
+          }
+        },
+      },
+      providerConfigRef.name = _skyK8SProviderCfgName,
+    }
+  }
+}
+
+_helper_providerCfg = lambda t {
+  # we use provider-kubernetes to enforce dependency on secrets,
+  # often the secret gets deleted and provider config and all other
+  # objects remains stall without being deleted or updated.
+  k8sv1a2.Object{
+    "metadata" = {
+      labels = {"skycluster.io/managed-by" = "skycluster"}
+      annotations = {
+        **helper._set_resource_name("providerConfig{}".format(t.capitalize()))
+      },
+    },
+    spec = {
+      references = [{
+        dependsOn = {
+          apiVersion = "v1"
+          kind = "Secret"
+          name = "k8s-gke-{}".format(oxr.metadata.name)
+          namespace = _ns
+        }
+      }]
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1"),
+          kind = "ProviderConfig",
+          metadata = {
+            name = "k8s-gke-{}".format(oxr.metadata.name),
+            namespace = _ns,
+            labels = {
+              "skycluster.io/managed-by" = "skycluster"
+              "skycluster.io/cluster-name" = oxr.metadata.name
+              "skycluster.io/config-type" = "{}-connection-data".format("k8s" if t == "kubernetes" else "helm")
+            },
+          },
+          spec = {
+            credentials = {
+              source = "Secret"
+              type = "GoogleApplicationCredentials"
+              secretRef = {
+                name = "k8s-gke-{}".format(oxr.metadata.name)
+                namespace = _ns,
+                key = "kubeconfig"
+              }
+            }
+            identity = {
+              secretRef = {
+                name = "k8s-gke-sa-{}".format(oxr.metadata.name),
+                namespace = _ns
+                key = "private_key"
+              }
+              source = "Secret"
+              type = "GoogleApplicationCredentials"
+            }
+          }
+        },
+      },
+      providerConfigRef.name = _skyK8SProviderCfgName
+    }
+  }
+}

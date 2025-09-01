@@ -53,6 +53,7 @@ status:
   serviceCidr: "10.10.0.0/24"
   podCidr: "10.10.0.0/24"
   clusterSecretName: example-cluster-secret
+  externalClusterName: example-cluster-secret
   controllers:
     - privateIp: 10.135.0.23,
       publicIp: 142.1.174.183,

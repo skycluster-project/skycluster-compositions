@@ -53,8 +53,6 @@ spec:
                   properties:
                     cidr:
                       type: string
-                    default:
-                      type: boolean
                     type:
                       type: string
                     zone:
@@ -82,6 +80,10 @@ spec:
                     type: string
                 type: object
               log:
+                type: string
+              podCidr:
+                type: string
+              serviceCidr:
                 type: string
               subnets:
                 items:

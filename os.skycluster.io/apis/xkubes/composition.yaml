@@ -127,7 +127,6 @@ spec:
             # import json
             import crypto
             import helper.v1alpha1.main as helper
-            import provider_openstack.v1alpha1 as opv1a1
             import provider_kubernetes.v1alpha2 as k8sv1a2
             import provider_kubernetes.v1alpha1 as k8sv1a1
             import provider_helm.v1beta1 as helmv1b1
@@ -535,26 +534,49 @@ spec:
             # Multi controller is not yet supported
             #
             _items += [
-              k8sv1a1.ProviderConfig{
-                metadata = {
-                  labels = _default_labels | {
-                    "skycluster.io/config-type" = "k8s-connection-data"
-                    "skycluster.io/cluster-name" = _oxrName
-                  }
-                  annotations = _default_annotations | {
-                    **helper._set_resource_name(cv.providerConfigs?.k8s?.generate),
-                    "krm.kcl.dev/ready" = "True"
+              k8sv1a2.Object{
+                "metadata" = {
+                  labels = {"skycluster.io/managed-by" = "skycluster"}
+                  annotations = {
+                    **helper._set_resource_name(cv.providerConfigs?.k8s?.generate)
                   },
                 },
                 spec = {
-                  credentials = {
-                    source = "Secret"
-                    secretRef = {
-                      namespace = _ns
+                  references = [{
+                    dependsOn = {
+                      apiVersion = "v1"
+                      kind = "Secret"
                       name = cv?.secret?.observed
-                      key = "kubeconfig"
+                      namespace = _ns
                     }
-                  }
+                  }]
+                  deletionPolicy = "Delete"
+                  forProvider = {
+                    manifest = {
+                      apiVersion = "kubernetes.crossplane.io/v1alpha1",
+                      kind = "ProviderConfig",
+                      metadata = {
+                        name = "k8s-os-{}".format(oxr.metadata.name),
+                        namespace = _ns,
+                        labels = {
+                          "skycluster.io/managed-by" = "skycluster"
+                          "skycluster.io/config-type" = "k8s-connection-data"
+                          "skycluster.io/cluster-name" = _oxrName
+                        },
+                      },
+                      spec = {
+                        credentials = {
+                          source = "Secret"
+                          secretRef = {
+                            name = cv?.secret?.observed
+                            namespace = _ns,
+                            key = "kubeconfig"
+                          }
+                        }
+                      }
+                    },
+                  },
+                  providerConfigRef.name = _skyK8SProviderCfgName
                 }
               } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.k8s?.generate]
             ]
@@ -563,26 +585,49 @@ spec:
             # ProviderConfig Helm: Controller helm provider config connection 
             #
             _items += [
-              helmv1b1.ProviderConfig{
-                metadata = {
-                  labels = _default_labels | {
-                    "skycluster.io/config-type" = "helm-connection-data"
-                    "skycluster.io/cluster-name" = _oxrName
-                  }
-                  annotations = _default_annotations | {
-                    **helper._set_resource_name(cv.providerConfigs?.helm?.generate),
-                    "krm.kcl.dev/ready" = "True"
-                  }
-                }
+              k8sv1a2.Object{
+                "metadata" = {
+                  labels = {"skycluster.io/managed-by" = "skycluster"}
+                  annotations = {
+                    **helper._set_resource_name(cv.providerConfigs?.helm?.generate)
+                  },
+                },
                 spec = {
-                  credentials = {
-                    source = "Secret"
-                    secretRef = {
-                      namespace = _ns
+                  references = [{
+                    dependsOn = {
+                      apiVersion = "v1"
+                      kind = "Secret"
                       name = cv?.secret?.observed
-                      key = "kubeconfig"
+                      namespace = _ns
                     }
-                  }
+                  }]
+                  deletionPolicy = "Delete"
+                  forProvider = {
+                    manifest = {
+                      apiVersion = "helm.crossplane.io/v1beta1",
+                      kind = "ProviderConfig",
+                      metadata = {
+                        name = "k8s-os-{}".format(oxr.metadata.name),
+                        namespace = _ns,
+                        labels = {
+                          "skycluster.io/managed-by" = "skycluster"
+                          "skycluster.io/config-type" = "helm-connection-data"
+                          "skycluster.io/cluster-name" = _oxrName
+                        },
+                      },
+                      spec = {
+                        credentials = {
+                          source = "Secret"
+                          secretRef = {
+                            name = cv?.secret?.observed
+                            namespace = _ns,
+                            key = "kubeconfig"
+                          }
+                        }
+                      }
+                    },
+                  },
+                  providerConfigRef.name = _skyK8SProviderCfgName
                 }
               } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.helm?.generate]
             ]
