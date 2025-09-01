@@ -137,18 +137,6 @@ spec:
               #   "default" = False
             } for i, sub in oxr.spec.subnets]
 
-            # # CIDR_subnet(x, 1, 0)
-            # # -- Add 1 bit → split into 2 halves.
-            # # -- Pick slice #0 → the first half of x.
-            # 
-            # # CIDR_subnet(x, 2, 2)
-            # # -- Add 2 bits → split into 4 quarters.
-            # # -- Pick slice #2 → the third quarter of x.
-            # 
-            # # CIDR_subnet(x, 2, 3)
-            # # -- Same four-quarter view.
-            # # -- Pick slice #3 → the fourth quarter (last chunk).
-
             _vpcCidr = oxr.spec.vpcCidr
 
             _items += [gcpv1beta1.Subnetwork{
@@ -262,6 +250,7 @@ spec:
                   nextHopIp = _privateAddress
                   networkSelector.matchControllerRef = True,
                   destRange = "0.0.0.0/0",
+                  priority = 10
                   tags = ["skycluster-agent"],
                 }
                 providerConfigRef = {

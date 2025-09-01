@@ -196,6 +196,7 @@ _items += [gcpv1beta1.Route{
       nextHopIp = _privateAddress
       networkSelector.matchControllerRef = True,
       destRange = "0.0.0.0/0",
+      priority = 10
       tags = ["skycluster-agent"],
     }
     providerConfigRef = {

@@ -181,7 +181,12 @@ _items += [gcpv1beta2.Instance{
         "ssh-keys" = "ubuntu:{}".format(oxr.spec?.publicKey) 
         "user-data" = oxr.spec.userData
       }
-      tags = ["instance-{}".format(_oxrName)]
+      tags = [
+        "instance-{}".format(_oxrName),
+        # To apply defaultrouting to the default node gateway
+        if not oxr.spec.publicIp:
+          "skycluster-agent"
+      ]
     },
     providerConfigRef = {
       name = _provCfg.metadata.name,

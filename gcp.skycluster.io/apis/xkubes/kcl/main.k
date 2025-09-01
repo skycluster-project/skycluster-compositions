@@ -64,10 +64,8 @@ _items += [
   _helper_project_iam_member("projectIamMember", _svcAccEmail, _project)
 ] if (_svcAccEmail and _project) or ocds?["projectIamMember"] else []
 
-
 _items += [_helper_subnet("subnetEks")]
-_gwPrivateIp = _xSetup.status?.gateway?.privateIp
-# _items += [_helper_routes("privateRoute", _gwPrivateIp)]
+
 # _project = ocds?["gkecluster"]?.Resource?.status?.atProvider?.project
 _items += [
   _helper_cluster("gkecluster", _svcAccEmail, _project)
@@ -76,9 +74,9 @@ _items += [
 _nodeGroups = oxr.spec.nodeGroups
 _nodeGroupsExists = any_true([ocds?["nodePool{}".format(i)] or False for i, _ in _nodeGroups])
 
-# _items += [
-#   _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups
-# ] if _svcAccEmail or _nodeGroupsExists else []
+_items += [
+  _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups
+] if _svcAccEmail or _nodeGroupsExists else []
 
 _providerConfigTypes = ["helm", "kubernetes"]
 _items += [
@@ -306,34 +304,9 @@ _helper_cluster = lambda s, e, p {
           **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
           "skycluster.io/cluster-name" = oxr.metadata.name
         }
-        nodeConfig = [
-          {
-            diskSizeGb = 20,
-            diskType = "pd-standard",
-            imageType = "COS_CONTAINERD",
-            machineType = "e2-medium",
-            labels = {
-              "submariner.io/gateway" = "true"
-            }
-            metadata.disableLegacyEndpoints = "true",
-            oauthScopes = [
-              "https://www.googleapis.com/auth/cloud-platform"
-            ],
-            preemptible = True,
-            shieldedInstanceConfig: [
-              {
-                enableIntegrityMonitoring = True,
-                enableSecureBoot = True,
-              }
-            ]
-            serviceAccount = e,
-            metadata = {
-              "disable-legacy-endpoints" = "true",
-            }
-          }
-        ]
-        # nodeVersion "latest"
-        # minMasterVersion = "latest"
+        nodeConfig = [{serviceAccount = e}]
+        removeDefaultNodePool = True
+        
         workloadIdentityConfig = [
           {
             workloadPool = "{}.svc.id.goog".format(p) if p else Undefined
@@ -409,6 +382,8 @@ _helper_node_group = lambda i, ng, e {
             metadata = {
               "disable-legacy-endpoints" = "true",
             }
+            if not ng.publicAccess:
+              tags = ["skycluster-agent"],
           }
         ]
       },
@@ -561,3 +536,31 @@ _helper_providerCfg = lambda t {
     }
   }
 }
+
+# _helper_route = lambda s, ip {
+#   gcpv1beta1.Route{
+#     metadata = {
+#       labels = {
+#         **oxr.metadata?.labels,
+#         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+#       }
+#       annotations = {
+#         **oxr.metadata?.annotations,
+#         **helper._set_resource_name(s),
+#       }
+#     }
+#     spec = {
+#       forProvider = {
+#         nextHopIp = ip
+#         networkSelector.matchLabels = {
+#           **helper._filter_default_labels(oxr.metadata.labels)
+#         }
+#         destRange = "0.0.0.0/0",
+#         tags = ["skycluster-k8s-gke"],
+#       }
+#       providerConfigRef = {
+#         name = _provCfg.metadata.name,
+#       }
+#     }
+#   }
+# }
