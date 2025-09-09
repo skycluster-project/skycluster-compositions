@@ -355,12 +355,12 @@ spec:
                 serviceCidr = oxr.spec?.serviceCidr
                 podCidr = oxr.spec?.podCidr?.cidr
                 # For easier access to cluster:
-                clusterSecretName = ocds?["eksKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+                clusterSecretName = ocds?["eksKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
                 externalClusterName = ocds?["k8sCluster"]?.Resource?.metadata?.name
-                controllers = [{publicIp = ocds?["k8sCluster"]?.Resource?.status?.atProvider?.endpoint}]
+                controllers = [{publicIp = ocds?["k8sCluster"]?.Resource?.status?.atProvider?.endpoint or Undefined}]
                 providerConfigs = {
-                  k8s: ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
-                  helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+                  k8s: ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
+                  helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
                 }
               }
               # status.log = yaml.encode(ocds?["eksKubeconfigSecret"]?.Resource?.statys?.atProvider?.manifest?.metadata?.name),

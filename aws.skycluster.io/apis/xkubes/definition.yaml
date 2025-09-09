@@ -33,7 +33,7 @@ spec:
                         minSize:
                           type: number
                       type: object
-                    instanceTypes:
+                    instanceType:
                       items:
                         type: string
                       type: array
