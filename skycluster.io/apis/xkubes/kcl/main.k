@@ -68,14 +68,14 @@ _items += [{
     principalArn = oxr.spec?.principal?.id or Undefined
     nodeGroups = [
       *[{
-        nodeCount = 1
-        instanceTypes = helper._get_instance_type(_provSettings, n.instanceTypes or "2vCPU-4GB", _oxrProvZone)
+        nodeCount = n.nodeCount or 1
+        instanceType = helper._get_instance_type(_provSettings, n.instanceType or "2vCPU-4GB", _oxrProvZone)
         publicAccess = n.publicAccess
         if n.autoScaling:
           autoScaling = {
             enabled = n.autoScaling?.enabled
-            minSize = n.autoScaling?.minCount
-            maxSize = n.autoScaling?.maxCount
+            minSize = n.autoScaling?.minSize
+            maxSize = n.autoScaling?.maxSize
           }
         } for n in _nodeGroups
       ]
@@ -107,19 +107,20 @@ _items += [{
   }
   spec = {
     applicationId = oxr.spec?.applicationId or Undefined
-    serviceCidr = oxr.spec?.serviceCidr or Undefined
+    nodeCidr = oxr.spec?.nodeCidr or Undefined
     podCidr = oxr.spec?.podCidr or Undefined
 
     nodeGroups = [
       *[{
-        nodeCount = 1
-        instanceType = helper._get_instance_type(_provSettings, n.instanceTypes or "2vCPU-4GB", _oxrProvZone)?[0]
+        nodeCount = n.nodeCount or 1
+        type = n.type or "user-defined"
+        instanceType = helper._get_instance_type(_provSettings, n.instanceType or "2vCPU-4GB", _oxrProvZone)?[0]
         publicAccess = n.publicAccess
         if n.autoScaling:
           autoScaling = {
             enabled = n.autoScaling?.enabled
-            minSize = n.autoScaling?.minCount
-            maxSize = n.autoScaling?.maxCount
+            minSize = n.autoScaling?.minSize
+            maxSize = n.autoScaling?.maxSize
           }
         } for n in _nodeGroups
       ]
@@ -137,7 +138,7 @@ _items += [{
     #   },
     #   # {
     #   #   nodeCount = 1
-    #   #   instanceTypes = _nodesTypes 
+    #   #   instanceType = _nodesTypes 
     #   #   publicAccess = False
     #   #   autoScaling = {
     #   #     enabled = True
@@ -187,22 +188,22 @@ _items += [{
           if oxr.spec?.controlPlane?.autoScaling:
             autoScaling = {
               enabled = oxr.spec?.controlPlane?.autoScaling?.enabled
-              minSize = oxr.spec?.controlPlane?.autoScaling?.minCount
-              maxSize = oxr.spec?.controlPlane?.autoScaling?.maxCount
+              minSize = oxr.spec?.controlPlane?.autoScaling?.minSize
+              maxSize = oxr.spec?.controlPlane?.autoScaling?.maxSize
             }
         }, 
       # Rest of node groups (at least there must be one with public access)
       *[{
-        nodeCount = 1
+        nodeCount = n.nodeCount or 1
         role = "worker"
         instanceType = helper._get_instance_type(_provSettings, oxr.spec?.controlPlane?.instanceType or "2vCPU-4GB", _oxrProvZone)?[0]
-        # instanceType = n.instanceTypes
+        # instanceType = n.instanceType
         publicAccess = n.publicAccess
         if n.autoScaling:
           autoScaling = {
             enabled = n.autoScaling?.enabled
-            minSize = n.autoScaling?.minCount
-            maxSize = n.autoScaling?.maxCount
+            minSize = n.autoScaling?.minSize
+            maxSize = n.autoScaling?.maxSize
           }
         } for n in _nodeGroups
       ]

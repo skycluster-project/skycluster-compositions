@@ -9,17 +9,17 @@ metadata:
     skycluster.io/provider-zone: us-east1-a
 spec: 
   applicationId: example-app
-  serviceCidr: 172.17.0.0/16
+  nodeCidr: 10.17.0.0/17
   podCidr: 
-    base: 10.15.0.0/17
-    cidr: 10.15.0.0/17
-    # not applicable in GCP, pod and service cidr are derived from the subnet cidr
+    cidr: 10.17.0.0/17
+    
   # Principal ARN for the IAM role that has permissions to manage the cluster
   # The purpose of this role is to allow the user assuming the role to 
   # view the cluster status through the AWS console or CLI (+optional)
   # principalArn: arn:aws:iam::123456789012:role/ExampleRole
   nodeGroups:
     - nodeCount: 1
+      type: default
       instanceType: e2-medium
       publicAccess: true
       autoScaling:

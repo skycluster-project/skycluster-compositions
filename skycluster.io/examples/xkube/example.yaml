@@ -4,9 +4,9 @@ metadata:
   name: example
 spec: 
   applicationId: example-app
+  nodeCidr: 10.0.2.0/24
   serviceCidr: 10.0.0.0/24
   podCidr: 
-    base: ""
     cidr: 10.0.1.0/24
     public: ""
     private: ""
@@ -16,26 +16,28 @@ spec:
     instanceType: "8vCPU-32GB"
     autoScaling:
       enabled: true
-      minCount: 1
-      maxCount: 3
+      minSize: 1
+      maxSize: 3
     highAvailability: true
 
   nodeGroups:
   # There must be at least one node group with public access
   # and it is used for gateway nodes
-  - instanceTypes: "4vCPU-4GB"
+  - nodeCount: 1
+    instanceType: "4vCPU-4GB"
+    type: default # default | user-defined only applicable for GCP
     publicAccess: true
     autoScaling: 
       enabled: false
-      minCount: 1
-      maxCount: 1
+      minSize: 1
+      maxSize: 1
     
   - instanceTypes: "2vCPU-4GB"
     publicAccess: false
     autoScaling: 
       enabled: false
-      minCount: 1
-      maxCount: 1
+      minSize: 1
+      maxSize: 1
     
   principal: 
     type: user | role | serviceAccount | servicePrincipal | managedIdentity

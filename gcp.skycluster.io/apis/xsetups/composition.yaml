@@ -111,8 +111,9 @@ spec:
               }
               spec = {
                 forProvider = {
-                  autoCreateSubnetworks = False,
+                  autoCreateSubnetworks = False
                   # mtu = 1460
+                  routingMode = "REGIONAL"
                 },
                 providerConfigRef = {
                   name = _provCfg.metadata.name,
@@ -125,16 +126,6 @@ spec:
               "type" = sub.type, # not relevant for GCP
               zone = sub.zone,
               cidrBlock = sub.cidr
-              # if sub.default:
-              #   "default" = True
-              #   # first half of the VPC CIDR
-              #   "podCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 1, 0) 
-              #   # second half of the VPC CIDR
-              #   "primaryCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 2, 2) 
-              #   # third quarter of the VPC CIDR
-              #   "serviceCidrBlock" = helper._net_CIDR_subnet(sub.cidr, 2, 3) 
-              # else:
-              #   "default" = False
             } for i, sub in oxr.spec.subnets]
 
             _vpcCidr = oxr.spec.vpcCidr
@@ -233,31 +224,10 @@ spec:
             _privateAddress = ocds?["privateAddress"]?.Resource?.status?.atProvider?.address
             _publicAddress = ocds?["publicAddress"]?.Resource?.status?.atProvider?.address
 
-            _items += [gcpv1beta1.Route{
-              metadata = {
-                labels = {
-                  **oxr.metadata?.labels,
-                  **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                }
-                annotations = {
-                  **oxr.metadata?.annotations,
-                  **helper._set_resource_name("agentRoute"),
-                  **helper._is_paused_label(oxr.metadata.labels),
-                }
-              }
-              spec = {
-                forProvider = {
-                  nextHopIp = _privateAddress
-                  networkSelector.matchControllerRef = True,
-                  destRange = "0.0.0.0/0",
-                  priority = 10
-                  tags = ["skycluster-agent"],
-                }
-                providerConfigRef = {
-                  name = _provCfg.metadata.name,
-                }
-              }
-            }] if ocds?["privateAddress"] or ocds?["agentRoute"] else []
+            # For 0.0.0.0 to the gatway for nodes without internet access
+            _items += [_helper_route_internet("routeInternet")] if ocds?["privateAddress"] or ocds?["routeInternet"] else []
+            # For 10.0.0.0/8 to the gateway for internal communication
+            _items += [_helper_route_internal("routeInternal")] if ocds?["privateAddress"] or ocds?["routeInternal"] else []
 
 
             _tcpPorts = oxr.spec.tcpPorts
@@ -397,6 +367,63 @@ spec:
 
             # Collect all resources into a list for output
             items = [*_items, dxr]
+
+
+
+            _helper_route_internet = lambda s {
+              gcpv1beta1.Route{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name(s),
+                  }
+                }
+                spec = {
+                  forProvider = {
+                    nextHopIp = _privateAddress
+                    networkSelector.matchControllerRef = True,
+                    destRange = "0.0.0.0/0",
+                    priority = 10
+                    tags = ["skycluster-internet"],
+                  }
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  }
+                }
+              }
+            }
+
+            _helper_route_internal = lambda s {
+              gcpv1beta1.Route{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name(s),
+                  }
+                }
+                spec = {
+                  forProvider = {
+                    nextHopIp = _privateAddress
+                    networkSelector.matchControllerRef = True,
+                    destRange = "10.0.0.0/8",
+                    priority = 10
+                    # This route should be applied to all except to the gateway node
+                    tags = ["skycluster-internal"],
+                  }
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  }
+                }
+              }
+            }
 
     - step: crossplane-contrib-function-auto-ready
       functionRef:

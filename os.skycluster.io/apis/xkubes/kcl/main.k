@@ -15,12 +15,10 @@
 
 import yaml
 import base64
-# import json
 import crypto
+import json
 import helper.v1alpha1.main as helper
 import provider_kubernetes.v1alpha2 as k8sv1a2
-import provider_kubernetes.v1alpha1 as k8sv1a1
-import provider_helm.v1beta1 as helmv1b1
 
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
@@ -99,6 +97,10 @@ _replace_with: (str, str, str) -> str = lambda s:str, k:str, v:str {
 
 _ns = "skycluster-system"
 _ud = oxr.spec?.userData or Undefined
+# K3S controller(s) comes with public IP and generally it does not need to 
+# route any traffic to the provider gateway. However, to communicate with the 
+# rest of internal networj it must route traffic to 10.0.0.0/8 to the 
+# provider gateway so it carries the traffic through its tailscale interface
 _scripts = ["k3s-controller"]
 _defaultUserData = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
 _userDataCtrl = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
@@ -156,38 +158,6 @@ _ctrlObjDataBase = {
     instanceType = ng.instanceType,
     publicAccess =  ng.publicAccess
   } for k, ng in _ctrlNodeGroup for j in range(0, min(_maxNodeCount, ng.nodeCount))
-}
-
-_helper_create_instance = lambda k, c {
-  {
-    "apiVersion" = "skycluster.io/v1alpha1",
-    "kind" = "XInstance",
-    "metadata" = {
-      labels = _default_labels | {"skycluster.io/instance-role" = "controller"}
-      annotations = _default_annotations | {
-        # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
-        # changed, the resource is re-created subsequently
-        **helper._set_resource_name(k),
-      },
-    },
-    "spec" = {
-      "applicationId" = _oxrAppId,
-      "ipForwarding" = True,
-      "image" = "ubuntu-24.04",
-      "flavor" = c.instanceType,
-      "publicIp" = True, # controller need to be accessible
-      "providerRef" = {
-        "platform" = _oxrProvPlatform,
-        "region" = _oxrProvRegion,
-        "zone" = _oxrProvZone
-      },
-      "subnets" = [{
-        "id" = _subnetId
-        "networkId" = _networkId
-      }],
-      "userData" = _userDataCtrl
-    }
-  }
 }
 
 # The pod subnet and the nodes' subnet should be different. 
@@ -401,6 +371,7 @@ _items += [
             labels = _default_labels | {
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = _oxrName,
+              "skycluster.io/provider-platform" = "openstack"
             },
             annotations = _default_annotations | {
               "skycluster.io/public-ip" = cv.publicIp,
@@ -629,8 +600,6 @@ _items += [
 #
 # SSHTask agent ssh connection sshtask
 #
-import json
-
 _items += [
   {
     apiVersion = "ssh.crossplane.io/v1alpha1"
@@ -743,3 +712,37 @@ dxr = {
 }
 
 items = [*_items, dxr]
+
+
+
+_helper_create_instance = lambda k, c {
+  {
+    "apiVersion" = "skycluster.io/v1alpha1",
+    "kind" = "XInstance",
+    "metadata" = {
+      labels = _default_labels | {"skycluster.io/instance-role" = "controller"}
+      annotations = _default_annotations | {
+        # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
+        # changed, the resource is re-created subsequently
+        **helper._set_resource_name(k),
+      },
+    },
+    "spec" = {
+      "applicationId" = _oxrAppId,
+      "ipForwarding" = True,
+      "image" = "ubuntu-24.04",
+      "flavor" = c.instanceType,
+      "publicIp" = True, # controller need to be accessible
+      "providerRef" = {
+        "platform" = _oxrProvPlatform,
+        "region" = _oxrProvRegion,
+        "zone" = _oxrProvZone
+      },
+      "subnets" = [{
+        "id" = _subnetId
+        "networkId" = _networkId
+      }],
+      "userData" = _userDataCtrl
+    }
+  }
+}

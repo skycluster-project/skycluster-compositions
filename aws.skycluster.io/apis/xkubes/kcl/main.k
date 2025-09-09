@@ -43,7 +43,8 @@ _defaults = {
 }
 
 _subnets = [{
-  type = "public"
+  # type = "public"
+  type = "private" # If we need to have nodes directly connected to internet we can choose "public" here
   cidrBlock = oxr.spec.podCidr.public
   zone = oxr.spec.providerRef.zones.primary
 }, {
@@ -136,6 +137,7 @@ _items += [
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = oxr.metadata.name,
+              "skycluster.io/provider-platform" = "aws"
             },
             annotations = {
               **oxr.metadata?.annotations,

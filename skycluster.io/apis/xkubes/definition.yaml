@@ -27,9 +27,9 @@ spec:
                     properties:
                       enabled:
                         type: boolean
-                      maxCount:
+                      maxSize:
                         type: number
-                      minCount:
+                      minSize:
                         type: number
                     type: object
                   highAvailability:
@@ -37,6 +37,8 @@ spec:
                   instanceType:
                     type: string
                 type: object
+              nodeCidr:
+                type: string
               nodeGroups:
                 items:
                   properties:
@@ -44,21 +46,23 @@ spec:
                       properties:
                         enabled:
                           type: boolean
-                        maxCount:
+                        maxSize:
                           type: number
-                        minCount:
+                        minSize:
                           type: number
                       type: object
-                    instanceTypes:
+                    instanceType:
                       type: string
+                    nodeCount:
+                      type: number
                     publicAccess:
                       type: boolean
+                    type:
+                      type: string
                   type: object
                 type: array
               podCidr:
                 properties:
-                  base:
-                    type: string
                   cidr:
                     type: string
                   private:

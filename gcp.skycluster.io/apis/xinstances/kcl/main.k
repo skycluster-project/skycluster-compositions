@@ -185,7 +185,9 @@ _items += [gcpv1beta2.Instance{
         "instance-{}".format(_oxrName),
         # To apply defaultrouting to the default node gateway
         if not oxr.spec.publicIp:
-          "skycluster-agent"
+          "skycluster-internet" # route 0.0.0.0 to gateway
+        else:
+          "skycluster-internal" # only route 10.0.0.0/8 to gateway
       ]
     },
     providerConfigRef = {

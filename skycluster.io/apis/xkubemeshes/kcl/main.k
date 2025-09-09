@@ -170,10 +170,27 @@ _items = []
 #
 _items += [
     # This is a dummy pod that is required for submariner to detect service cidr.
-    # Submariner implement a bad practice in determining service cidr where 
+    # Submariner implement an outdated practice in determining service cidr where 
     # in our case it fails.
-    _helper_dummy_pod(s) for s in _clusterNamesRef \
-      if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "gcp"
+    _helper_dummy_pod_svc_cidr(s) for s in _clusterNamesRef \
+      if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "openstack" 
+] if _remoteK8SKubeconfigs else []
+_items += [
+    _helper_dummy_pod_cluster_cidr(s) for s in _clusterNamesRef \
+      if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "openstack" 
+] if _remoteK8SKubeconfigs else []
+
+# # routing for gcp
+# _items += [
+#     _helper_route_replicator_daemonset(s) for s in _clusterNamesRef \
+#       if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform == "gcp"
+# ] if _remoteK8SKubeconfigs else []
+
+_items += [
+    # This is a dummy pod that is required to apply rp_filter workaround for GCP clusters
+    # to work with Submariner
+    _helper_rp_filter_daemonset(s) for s in _clusterNamesRef \
+      if _xkubesRefData[s]?.platform == "gcp"
 ] if _remoteK8SKubeconfigs else []
 
 ######################### Cleanup Istio and Submariner ############
@@ -405,7 +422,7 @@ _items += [
 
 _items += [
   # We don't need to install submariner in the management cluster
-  _helper_subm_operator(s, _chartsSubm) \
+  _helper_subm_operator(s, _chartsSubm, _xkubesRefData[s]?.platform) \
     for s in _clusterNamesRef \
       if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
         or ocds?["submOp{}".format(s)]
@@ -418,7 +435,7 @@ _items += [
   _helper_istio_base(s, _chartIstio["base"]) \
     for s in _clusterNamesRef \
       if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
-        and _remoteProviderCfgsMaps and _xkubesRefData[s]?.platform != "gcp") \
+        and _remoteProviderCfgsMaps) \
         or ocds?["istio-base-{}".format(s)]
 ]
 
@@ -428,26 +445,31 @@ _items += [
 _items += [
   _helper_istio_operator(s, _chartIstio["istiod"]) for s in _clusterNamesRef \
     if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
-      and _remoteProviderCfgsMaps and _xkubesRefData[s]?.platform != "gcp") \
+      and _remoteProviderCfgsMaps) \
       or ocds?["istiod-{}".format(s)]
 ]
 
 #
 # Create remote secrets, it must be created after base and istio releases
+#   This script uses istioctl to create the necessary certificates
+#   for remote clusters and store all data in <cluster-name>-cacerts secret 
+#   in the local management cluster.
+#   If the secret exists, it will be reused.
 #
 _items += [
   _helper_remote_secret_pod(s) for s in _clusterNamesRef \
     if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
       ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
-      _k8sProvCfgName and \
-      _xkubesRefData[s]?.platform != "gcp"
+      _k8sProvCfgName
 ]
 
 #
 # Apply remote-secret for each cluster on all other clusters
+# Create a remote secret for cluster s on cluster t
+# It fetches the generated remote-secret for cluster s and applies it to cluster t
 #
 _items += [ # install secret s into cluster t
-  _helper_istio_remote_sec(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
+  _helper_istio_remote_secret(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
     if (s != t and _remoteSecretsReadiness(s) and _cleanupIstioReadiness(t) \
         and _remoteSecretsMap and _remoteProviderCfgsMaps) \
       or ocds?["istio-rsec-{}-{}".format(s,t)]
@@ -630,18 +652,18 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
   }
 }
 
-_helper_dummy_pod = lambda s {
+_helper_dummy_pod_svc_cidr = lambda s {
   k8sv1a2.Object{
     metadata = {
       labels = _default_labels | {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = _default_annotations | helper._set_resource_name("dummy-pod-{}".format(s))
+      annotations = _default_annotations | helper._set_resource_name("dummy-svc-cidr-{}".format(s))
     }
     spec =  {
       forProvider.manifest = {
         apiVersion = "v1"
         kind = "Pod"
         metadata = { 
-          name = "dummy-pod-{}".format(s),
+          name = "dummy-pod-svc-cidr-{}".format(s),
           namespace = "kube-system",
           labels = _default_labels | {
             "component": "kube-apiserver"
@@ -661,6 +683,174 @@ _helper_dummy_pod = lambda s {
       }
       providerConfigRef = {
         # run the pod in the local cluster and use kubeconfig to configure remote cluster
+        name = _remoteProviderCfgsMaps[s]?.k8s
+      }
+    }
+  }
+}
+
+_helper_dummy_pod_cluster_cidr = lambda s {
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/pod-type": "dummy-pod"}
+      annotations = _default_annotations | helper._set_resource_name("dummy-cluster-cidr-{}".format(s))
+    }
+    spec =  {
+      forProvider.manifest = {
+        apiVersion = "v1"
+        kind = "Pod"
+        metadata = { 
+          name = "dummy-pod-cluster-cidr-{}".format(s),
+          namespace = "kube-system",
+          labels = _default_labels | {
+            "component": "kube-controller-manager"
+            "skycluster.io/pod-type": "dummy-pod"
+          },
+          annotations = _default_annotations
+        }
+        spec = {
+          restartPolicy = "Always"
+          containers = [{
+            name = "dummy-container"
+            image = "busybox"
+            command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
+            args = ["--cluster-cidr={}".format(_xkubesRefData[s]?.podCidr)]  
+          }]
+        }
+      }
+      providerConfigRef = {
+        # run the pod in the local cluster and use kubeconfig to configure remote cluster
+        name = _remoteProviderCfgsMaps[s]?.k8s
+      }
+    }
+  }
+}
+
+_helper_rp_filter_daemonset = lambda s {
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/pod-type": "rp-filter-daemon"}
+      annotations = _default_annotations | helper._set_resource_name("rp-filter-daemon-{}".format(s))
+    }
+    spec = {
+      forProvider.manifest = {
+        apiVersion = "apps/v1"
+        kind = "DaemonSet"
+        metadata = {
+          name = "rp-filter-daemon-{}".format(s),
+          namespace = "kube-system",
+          labels = _default_labels | {
+            "component": "kube-apiserver"
+            "skycluster.io/pod-type": "rp-filter-daemon"
+          },
+          annotations = _default_annotations
+        }
+        spec = {
+          selector.matchLabels = {
+            "name": "rp-filter-daemon-{}".format(s)
+          }
+          template = {
+            metadata.labels = {
+              "name": "rp-filter-daemon-{}".format(s)
+            }
+            spec = {
+              hostNetwork = True
+              restartPolicy = "Always"
+              containers = [{
+                name = "netshoot-hostmount"
+                image = "nicolaka/netshoot"
+                args = ["/bin/bash","-c","echo 2 > /proc/sys/net/ipv4/conf/all/rp_filter; sysctl net.ipv4.conf.all.rp_filter; tail -f /dev/null"]
+                stdin = True
+                stdinOnce = True
+                terminationMessagePath = "/dev/termination-log"
+                terminationMessagePolicy = "File"
+                tty = True
+                securityContext = {
+                  allowPrivilegeEscalation = True
+                  privileged = True
+                  runAsUser = 0
+                  capabilities = {
+                    add = ["ALL"]
+                  }
+                }
+                volumeMounts = [{
+                  mountPath = "/host"
+                  name = "host-slash"
+                  readOnly = True
+                }]
+              }]
+              volumes = [{
+                hostPath = {
+                  path = "/"
+                  type = ""
+                }
+                name = "host-slash"
+              }]
+            }
+          }
+        }
+      }
+      providerConfigRef = {
+        name = _remoteProviderCfgsMaps[s]?.k8s
+      }
+    }
+  }
+}
+
+
+_helper_route_replicator_daemonset = lambda s {
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/pod-type": "route-replicator-daemon"}
+      annotations = _default_annotations | helper._set_resource_name("route-replicator-daemon-{}".format(s))
+    }
+    spec = {
+      forProvider.manifest = {
+        apiVersion = "apps/v1"
+        kind = "DaemonSet"
+        metadata = {
+          name = "route-replicator-daemon-{}".format(s),
+          namespace = "kube-system",
+          labels = _default_labels | {
+            "component": "route-replicator"
+            "skycluster.io/pod-type": "route-replicator-daemon"
+            "role": "route-replicator"
+          },
+          annotations = _default_annotations
+        }
+        spec = {
+          selector.matchLabels = {
+            "name": "route-replicator-daemon-{}".format(s)
+          }
+          template = {
+            metadata.labels = {
+              "name": "route-replicator-daemon-{}".format(s)
+              "role": "route-replicator"
+            }
+            spec = {
+              nodeSelector = {
+                "submariner.io/gateway" = "true"
+              }
+              hostNetwork = True
+              restartPolicy = "Always"
+              containers = [{
+                name = "route-replicator"
+                image = "alpine:3.18"
+                args = ["/bin/sh","-c", _helper_script_route_setup.replace("__POD_CIDR__", _xkubesRefData[s]?.podCidr).replace("__SVC_CIDR__", _xkubesRefData[s]?.serviceCidr)]
+                terminationMessagePath = "/dev/termination-log"
+                terminationMessagePolicy = "File"
+                securityContext = {
+                  runAsUser = 0
+                  capabilities = {
+                    add = ["NET_ADMIN"]
+                  }
+                }
+              }]              
+            }
+          }
+        }
+      }
+      providerConfigRef = {
         name = _remoteProviderCfgsMaps[s]?.k8s
       }
     }
@@ -876,7 +1066,7 @@ _helper_submariner_secret = lambda s, psk, apiServer, brokerCA, brokerToken {
   }
 }
 
-_helper_subm_operator = lambda s, ch {
+_helper_subm_operator = lambda s, ch, platform {
   helmv1b1.Release{
     metadata = {
       labels = _default_labels 
@@ -912,6 +1102,17 @@ _helper_subm_operator = lambda s, ch {
             natEnabled = "true"
           }
         }
+        # # disable healthcheck on GCP due to use of calico cni
+        # # which does not have cni with cluster cidr on the host network interface
+        # if platform == "gcp":
+        #   patchesFrom = [{
+        #     configMapKeyRef = {
+        #       key = "patch.yaml"
+        #       name = "submariner-patch"
+        #       namespace = "skycluster-system"
+        #       optional = False
+        #     }
+        #   }]
       }
       providerConfigRef = {
         name = _remoteProviderCfgsMaps[s]?.helm
@@ -992,7 +1193,7 @@ _helper_istio_operator = lambda s, ch {
   }
 }
 
-_helper_istio_remote_sec = lambda s, t {
+_helper_istio_remote_secret = lambda s, t {
   k8sv1a2.Object{
     metadata = {
       labels = _default_labels | {"skycluster.io/secret-type": "remote"}
@@ -1021,3 +1222,41 @@ _helper_istio_remote_sec = lambda s, t {
     }
   }
 }
+
+
+_helper_script_route_setup = """\
+#!/bin/sh
+set -eu
+
+apk add --no-cache iproute2 >/dev/null 2>&1 || true
+
+TABLE_NAME=skycluster
+TABLE_ID=200
+IFF=submariner
+PRIO=2000
+
+CIDR1=__POD_CIDR__
+CIDR2=__SVC_CIDR__
+
+# ensure table mapping exists in /etc/iproute2/rt_tables
+if ! grep -qE "^[[:space:]]*$TABLE_ID[[:space:]]+$TABLE_NAME$" /etc/iproute2/rt_tables; then
+  echo "$TABLE_ID $TABLE_NAME" >> /etc/iproute2/rt_tables
+fi
+
+# ensure rule for each CIDR
+for cidr in "$CIDR1" "$CIDR2"; do
+  if ! ip rule show | grep -q -E "iif $IFF.*to +$cidr.*lookup $TABLE_NAME|to +$cidr.*iif $IFF.*lookup $TABLE_NAME"; then
+    ip rule add iif "$IFF" to "$cidr" lookup "$TABLE_NAME" priority "$PRIO" || true
+  fi
+done
+
+# replicate main table (excluding default) into the skycluster table continuously
+while true; do
+  ip route flush table "$TABLE_NAME" 2>/dev/null || true
+  ip route show table main | grep -v '^default' | while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    ip route add table "$TABLE_NAME" $line 2>/dev/null || true
+  done
+  sleep 10
+done
+"""

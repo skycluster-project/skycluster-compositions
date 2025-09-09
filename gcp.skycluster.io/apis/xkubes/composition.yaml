@@ -75,9 +75,12 @@ spec:
             provider-helm = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             provider-gcp = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
-          source: |2-
+          source: |2
 
             import regex as re
+            import yaml
+            import base64
+
             import helper.v1alpha1.main as helper
             import provider_gcp.compute.v1beta1 as gcpv1beta1
             import provider_gcp.cloudplatform.v1beta1 as cp_v1b1
@@ -144,16 +147,20 @@ spec:
 
             _items += [_helper_subnet("subnetEks")]
 
-            # _project = ocds?["gkecluster"]?.Resource?.status?.atProvider?.project
+            # we need to get the default node group spec if defined
+            # then set the init count based on that
+            _nodeGroups = oxr.spec.nodeGroups
+            _defaultNodeGroup = [n for n in oxr.spec.nodeGroups if n?["type"] == "default"]
+            _nodeGroupsExists = any_true([ocds?["nodePool{}".format(i)] or False for i, _ in _nodeGroups])
+            assert len(_defaultNodeGroup) <= 1, "Only one default node group is allowed"
+            _defaultNodeCount = _defaultNodeGroup?[0]?.nodeCount or 1
+
             _items += [
-              _helper_cluster("gkecluster", _svcAccEmail, _project)
+              _helper_cluster("gkecluster", _svcAccEmail, _project, _defaultNodeCount)
             ] if (_project and _svcAccEmail) or ocds?["gkecluster"] else []
 
-            _nodeGroups = oxr.spec.nodeGroups
-            _nodeGroupsExists = any_true([ocds?["nodePool{}".format(i)] or False for i, _ in _nodeGroups])
-
             _items += [
-              _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups
+              _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups if ng["type"] != "default"
             ] if _svcAccEmail or _nodeGroupsExists else []
 
             _providerConfigTypes = ["helm", "kubernetes"]
@@ -191,7 +198,6 @@ spec:
                     **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                     "skycluster.io/composite-name" = _oxrName,
-                    "app.kubernetes.io/dummy" = "skycluster",
                   }
                   annotations = {
                     **oxr.metadata?.annotations,
@@ -229,16 +235,16 @@ spec:
             dxr = {
               **option("params").dxr,
               status = {
-                serviceCidr = ocds?["gkecluster"]?.Resource?.status?.atProvider?.servicesIpv4Cidr
-                podCidr = ocds?["gkecluster"]?.Resource?.status?.atProvider?.clusterIpv4Cidr
-                externalClusterName = ocds?["gkecluster"]?.Resource?.metadata?.name
+                serviceCidr = ocds?["gkecluster"]?.Resource?.status?.atProvider?.servicesIpv4Cidr or Undefined
+                podCidr = ocds?["gkecluster"]?.Resource?.status?.atProvider?.clusterIpv4Cidr or Undefined
+                externalClusterName = ocds?["gkecluster"]?.Resource?.metadata?.name or Undefined
                 # For easier access to cluster:
-                clusterSecretName = ocds?["gkeKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
-                controllers = [{publicIp = ocds?["gkecluster"]?.Resource?.status?.atProvider?.endpoint}]
+                clusterSecretName = ocds?["gkeKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
+                controllers = [{publicIp = ocds?["gkecluster"]?.Resource?.status?.atProvider?.endpoint}] if ocds?["gkecluster"] else []
                 providerConfigs = {
                   k8s: ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
                   helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
-                }
+                } if ocds?["providerConfigKubernetes"] or ocds?["providerConfigHelm"] else {}
               }
             }
 
@@ -344,7 +350,7 @@ spec:
               }
             }
 
-            _helper_cluster = lambda s, e, p {
+            _helper_cluster = lambda s, e, p, nc {
               container_v1b1.Cluster{
                 metadata = {
                   labels = {
@@ -361,16 +367,25 @@ spec:
                 spec = {
                   forProvider = {
                     deletionProtection = False,
-                    enableIntranodeVisibility = True,
-                    initialNodeCount = 1,
-                    ipAllocationPolicy = [
-                      {
-                        # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
-                        # servicesIpv4CidrBlock = oxr.spec.serviceCidr
-                        clusterSecondaryRangeName = "pods",
-                        servicesSecondaryRangeName = "services",
-                      }
-                    ]
+                    enableIntranodeVisibility = False,
+                    initialNodeCount = nc,
+                    # defaultSnatStatus = [{disabled = True}],
+                    # networkPolicy = [
+                    #   {
+                    #     enabled = True,
+                    #     provider = "CALICO"
+                    #   }
+                    # ]
+                    networkingMode = "ROUTES"
+                    clusterIpv4Cidr = oxr.spec.podCidr.cidr
+                    # ipAllocationPolicy = [
+                    #   {
+                    #     # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
+                    #     # servicesIpv4CidrBlock = oxr.spec.serviceCidr
+                    #     clusterSecondaryRangeName = "pods",
+                    #     servicesSecondaryRangeName = "services",
+                    #   }
+                    # ]
                     loggingService = "logging.googleapis.com/kubernetes",
                     monitoringService = "monitoring.googleapis.com/kubernetes",
                     location = _oxrProvZone,
@@ -382,9 +397,34 @@ spec:
                       **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
                       "skycluster.io/cluster-name" = oxr.metadata.name
                     }
-                    nodeConfig = [{serviceAccount = e}]
-                    removeDefaultNodePool = True
-                    
+                    nodeConfig = [{
+                      diskSizeGb = 20,
+                      diskType = "pd-standard",
+                      imageType = "UBUNTU_CONTAINERD",
+                      machineType = "e2-medium" # TODO
+                      # This is a public node
+                      labels = {
+                        "submariner.io/gateway" = "true"
+                      }
+                      metadata.disableLegacyEndpoints = "true",
+                      oauthScopes = [
+                        "https://www.googleapis.com/auth/cloud-platform"
+                      ],
+                      shieldedInstanceConfig: [{
+                          enableIntegrityMonitoring = True,
+                          enableSecureBoot = True,
+                      }]
+                      serviceAccount = e,
+                      metadata = {
+                        "disable-legacy-endpoints" = "true",
+                      }
+                      # tags = [
+                      #   "skycluster-internal" # only route 10.0.0.0/8 to gateway
+                      # ]
+                    }]
+                    nodeVersion = "1.32.6-gke.1060000"
+                    minMasterVersion = "1.32.6-gke.1060000"
+                    removeDefaultNodePool = False
                     workloadIdentityConfig = [
                       {
                         workloadPool = "{}.svc.id.goog".format(p) if p else Undefined
@@ -422,24 +462,28 @@ spec:
                     location = _oxrProvZone,
                     autoscaling = [
                       {
-                        minNodeCount = ng.autoscaling?.minSize or 1,
-                        maxNodeCount = ng.autoscaling?.maxSize or 3,
+                        totalMinNodeCount = ng.autoscaling?.minSize or 1,
+                        totalMaxNodeCount = ng.autoscaling?.maxSize or 3,
                       }
                     ]
                     clusterSelector.matchControllerRef = True
-                    initialNodeCount = 1
+                    initialNodeCount = ng.nodeCount or 1
                     management = [
                       {
                         autoRepair = True,
                         autoUpgrade = True,
                       }
                     ]
-                    maxPodsPerNode = 55
+                    if not ng.publicAccess:
+                      networkConfig = [
+                        {enablePrivateNodes = True}
+                      ]
+                    # maxPodsPerNode = 55 not available for route-based clusters
                     nodeConfig = [
                       {
                         diskSizeGb = 20,
                         diskType = "pd-standard",
-                        imageType = "COS_CONTAINERD",
+                        imageType = "UBUNTU_CONTAINERD",
                         machineType = ng.instanceType or "e2-medium",
                         if ng.publicAccess:
                           labels = {
@@ -460,8 +504,12 @@ spec:
                         metadata = {
                           "disable-legacy-endpoints" = "true",
                         }
+                        tags = [
                         if not ng.publicAccess:
-                          tags = ["skycluster-agent"],
+                          "skycluster-internet" # route 0.0.0.0 to gateway
+                        # else:
+                        #   "skycluster-internal" # only route 10.0.0.0/8 to gateway
+                        ]
                       }
                     ]
                   },
@@ -487,19 +535,18 @@ spec:
                 spec = {
                   forProvider = {
                     region = _oxrProvRegion,
-                    # if s.default:
-                    ipCidrRange = oxr.spec.podCidr.base,
-                    secondaryIpRange = [
-                      {
-                        ipCidrRange = oxr.spec.podCidr.cidr
-                        rangeName = "pods"
-                      },
-                      {
-                        ipCidrRange = oxr.spec.serviceCidr
-                        rangeName = "services"
-                      }
-                    ]
-                    # else:
+                    # ipCidrRange = oxr.spec.podCidr.base
+                    ipCidrRange = oxr.spec.nodeCidr,
+                    # secondaryIpRange = [
+                    #   {
+                    #     ipCidrRange = oxr.spec.podCidr.cidr
+                    #     rangeName = "pods"
+                    #   },
+                    #   {
+                    #     ipCidrRange = oxr.spec.serviceCidr
+                    #     rangeName = "services"
+                    #   }
+                    # ]
                     networkSelector.matchLabels = {
                       **helper._filter_default_labels(oxr.metadata.labels)
                     }
@@ -537,6 +584,7 @@ spec:
                           **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                           "skycluster.io/secret-type" = "k8s-connection-data",
                           "skycluster.io/cluster-name" = oxr.metadata.name,
+                          "skycluster.io/provider-platform" = "gcp"
                         },
                         annotations = {
                           **oxr.metadata?.annotations,
@@ -571,6 +619,13 @@ spec:
                       apiVersion = "v1"
                       kind = "Secret"
                       name = "k8s-gke-{}".format(oxr.metadata.name)
+                      namespace = _ns
+                    }
+                  }, {
+                    dependsOn = {
+                      apiVersion = "v1"
+                      kind = "Secret"
+                      name = "k8s-gke-sa-{}".format(oxr.metadata.name),
                       namespace = _ns
                     }
                   }]
@@ -614,34 +669,6 @@ spec:
                 }
               }
             }
-
-            # _helper_route = lambda s, ip {
-            #   gcpv1beta1.Route{
-            #     metadata = {
-            #       labels = {
-            #         **oxr.metadata?.labels,
-            #         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-            #       }
-            #       annotations = {
-            #         **oxr.metadata?.annotations,
-            #         **helper._set_resource_name(s),
-            #       }
-            #     }
-            #     spec = {
-            #       forProvider = {
-            #         nextHopIp = ip
-            #         networkSelector.matchLabels = {
-            #           **helper._filter_default_labels(oxr.metadata.labels)
-            #         }
-            #         destRange = "0.0.0.0/0",
-            #         tags = ["skycluster-k8s-gke"],
-            #       }
-            #       providerConfigRef = {
-            #         name = _provCfg.metadata.name,
-            #       }
-            #     }
-            #   }
-            # }
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready
