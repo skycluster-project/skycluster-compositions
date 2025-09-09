@@ -43,8 +43,7 @@ _defaults = {
 }
 
 _subnets = [{
-  # type = "public"
-  type = "private" # If we need to have nodes directly connected to internet we can choose "public" here
+  type = "public" 
   cidrBlock = oxr.spec.podCidr.public
   zone = oxr.spec.providerRef.zones.primary
 }, {
