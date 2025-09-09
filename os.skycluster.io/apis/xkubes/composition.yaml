@@ -790,23 +790,23 @@ spec:
                   }
                 controllers = [
                   {
-                    **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType"]}
-                    **{k = str(v?["observed"]) for k, v in obj if k in ["secret", "ssh", "controller"]}
+                    **{k = v for k, v in obj if v and k in ["privateIp", "publicIp", "instanceType"]}
+                    **{k = str(v?["observed"]) for k, v in obj if v and k in ["secret", "ssh", "controller"]}
                     **{
                       k = {
                         a = str(b?["observed"]) for a, b in v
-                      } for k, v in obj if k in ["providerConfigs"]
+                      } for k, v in obj if v and k in ["providerConfigs"]
                     }
                   } for _, obj in _ctrlObjData
                 ]
                 agents = [
                   {
-                    **{k = v for k ,v in obj if k in ["privateIp", "publicIp", "instanceType", "publicAccess"]} 
-                    **{k = str(v?["observed"]) for k, v in obj if k in ["ssh", "agent"]}
+                    **{k = v for k, v in obj if v and k in ["privateIp", "publicIp", "instanceType", "publicAccess"]} 
+                    **{k = str(v?["observed"]) for k, v in obj if v and k in ["ssh", "agent"]}
                     **{
                       k = {
                         a = str(b?["observed"]) for a, b in v
-                      } for k, v in obj if k in ["providerConfigs"]
+                      } for k, v in obj if v and k in ["providerConfigs"]
                     }
                   } for _, obj in _agentObjData
                 ]
