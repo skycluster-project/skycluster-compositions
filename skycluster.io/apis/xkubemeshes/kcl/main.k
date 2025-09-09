@@ -173,11 +173,11 @@ _items += [
     # Submariner implement an outdated practice in determining service cidr where 
     # in our case it fails.
     _helper_dummy_pod_svc_cidr(s) for s in _clusterNamesRef \
-      if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "openstack" 
+      if s != _k8sMgmtClusterName 
 ] if _remoteK8SKubeconfigs else []
 _items += [
     _helper_dummy_pod_cluster_cidr(s) for s in _clusterNamesRef \
-      if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "openstack" 
+      if s != _k8sMgmtClusterName
 ] if _remoteK8SKubeconfigs else []
 
 # # routing for gcp

@@ -245,11 +245,11 @@ spec:
                 # Submariner implement an outdated practice in determining service cidr where 
                 # in our case it fails.
                 _helper_dummy_pod_svc_cidr(s) for s in _clusterNamesRef \
-                  if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "openstack" 
+                  if s != _k8sMgmtClusterName 
             ] if _remoteK8SKubeconfigs else []
             _items += [
                 _helper_dummy_pod_cluster_cidr(s) for s in _clusterNamesRef \
-                  if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform != "openstack" 
+                  if s != _k8sMgmtClusterName
             ] if _remoteK8SKubeconfigs else []
 
             # # routing for gcp
@@ -523,6 +523,10 @@ spec:
 
             #
             # Create remote secrets, it must be created after base and istio releases
+            #   This script uses istioctl to create the necessary certificates
+            #   for remote clusters and store all data in <cluster-name>-cacerts secret 
+            #   in the local management cluster.
+            #   If the secret exists, it will be reused.
             #
             _items += [
               _helper_remote_secret_pod(s) for s in _clusterNamesRef \
@@ -533,9 +537,11 @@ spec:
 
             #
             # Apply remote-secret for each cluster on all other clusters
+            # Create a remote secret for cluster s on cluster t
+            # It fetches the generated remote-secret for cluster s and applies it to cluster t
             #
             _items += [ # install secret s into cluster t
-              _helper_istio_remote_sec(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
+              _helper_istio_remote_secret(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
                 if (s != t and _remoteSecretsReadiness(s) and _cleanupIstioReadiness(t) \
                     and _remoteSecretsMap and _remoteProviderCfgsMaps) \
                   or ocds?["istio-rsec-{}-{}".format(s,t)]
@@ -1259,7 +1265,7 @@ spec:
               }
             }
 
-            _helper_istio_remote_sec = lambda s, t {
+            _helper_istio_remote_secret = lambda s, t {
               k8sv1a2.Object{
                 metadata = {
                   labels = _default_labels | {"skycluster.io/secret-type": "remote"}
