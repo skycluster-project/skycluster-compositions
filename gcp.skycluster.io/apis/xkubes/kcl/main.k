@@ -162,7 +162,7 @@ dxr = {
     externalClusterName = ocds?["gkecluster"]?.Resource?.metadata?.name or Undefined
     # For easier access to cluster:
     clusterSecretName = ocds?["gkeKubeconfigSecret"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
-    controllers = [{publicIp = ocds?["gkecluster"]?.Resource?.status?.atProvider?.endpoint}] if ocds?["gkecluster"] else []
+    controllers = [{publicIp = ocds?["gkecluster"]?.Resource?.status?.atProvider?.endpoint or Undefined}] if ocds?["gkecluster"] else []
     providerConfigs = {
       k8s: ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
       helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
