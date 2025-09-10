@@ -91,8 +91,8 @@ _items += [_helper_sg_rule_inbound_icmp()]
 # Inbound TCP security group rules
 #
 _tcpPortDefaults = [
-  {"fromPort" = 30000, "toPort" = 30020},
-  {"fromPort" = 51820, "toPort" = 51821},
+  {"fromPort" = 30000, "toPort" = 32767},
+  {"fromPort" = 32768, "toPort" = 60999},
 ]
 _tcpPortDefaults = _tcpPortDefaults + [
   {"fromPort" = port, "toPort" = port} 
