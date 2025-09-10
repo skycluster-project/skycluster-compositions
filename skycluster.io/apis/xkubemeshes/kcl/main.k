@@ -190,8 +190,22 @@ _items += [
     # This is a dummy pod that is required to apply rp_filter workaround for GCP clusters
     # to work with Submariner
     _helper_rp_filter_daemonset(s) for s in _clusterNamesRef \
-      if _xkubesRefData[s]?.platform == "gcp"
+      if _xkubesRefData[s]?.platform in ["gcp", "aws"]
 ] if _remoteK8SKubeconfigs else []
+
+#
+# Only for aws, enable IP forwarding using aws cli command
+#
+# _items += [
+#   _helper_src_dst_check_daemonset(s) for s in _clusterNamesRef \
+#     if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
+#       or ocds?["src-dst-check-daemon-{}".format(s)]
+# ]
+_items += [
+  _helper_sync_routes_daemonset(s) for s in _clusterNamesRef \
+    if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
+      or ocds?["sync-routes-daemon-{}".format(s)]
+]
 
 ######################### Cleanup Istio and Submariner ############
 
@@ -797,6 +811,150 @@ _helper_rp_filter_daemonset = lambda s {
   }
 }
 
+_helper_sync_routes_daemonset = lambda s {
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/pod-type": "sync-routes-daemon"}
+      annotations = _default_annotations | helper._set_resource_name("sync-routes-daemon-{}".format(s))
+    }
+    spec = {
+      forProvider.manifest = {
+        apiVersion = "apps/v1"
+        kind = "DaemonSet"
+        metadata = {
+          name = "sync-routes-daemon-{}".format(s),
+          namespace = "kube-system",
+          labels = _default_labels | {
+            "skycluster.io/pod-type": "sync-routes-daemon"
+          },
+          annotations = _default_annotations
+        }
+        spec = {
+          selector.matchLabels = {
+            "name": "sync-routes-daemon-{}".format(s)
+          }
+          template = {
+            metadata.labels = {
+              "name": "sync-routes-daemon-{}".format(s)
+            }
+            spec = {
+              hostNetwork = True
+              restartPolicy = "Always"
+              containers = [{
+                name = "netshoot-hostmount"
+                image = "nicolaka/netshoot"
+                args = ["/bin/bash","-c", _helper_sync_table_2_with_main]
+                stdin = True
+                stdinOnce = True
+                terminationMessagePath = "/dev/termination-log"
+                terminationMessagePolicy = "File"
+                tty = True
+                securityContext = {
+                  allowPrivilegeEscalation = True
+                  privileged = True
+                  runAsUser = 0
+                  capabilities = {
+                    add = ["ALL"]
+                  }
+                }
+                volumeMounts = [{
+                  mountPath = "/host"
+                  name = "host-slash"
+                  readOnly = True
+                }]
+              }]
+              volumes = [{
+                hostPath = {
+                  path = "/"
+                  type = ""
+                }
+                name = "host-slash"
+              }]
+            }
+          }
+        }
+      }
+      providerConfigRef = {
+        name = _remoteProviderCfgsMaps[s]?.k8s
+      }
+    }
+  }
+}
+
+_helper_src_dst_check_daemonset = lambda s {
+  k8sv1a2.Object{
+    metadata = {
+      labels = _default_labels | {"skycluster.io/pod-type": "src-dst-check-daemon"}
+      annotations = _default_annotations | helper._set_resource_name("src-dst-check-daemon-{}".format(s))
+    }
+    spec = {
+      forProvider.manifest = {
+        apiVersion = "apps/v1"
+        kind = "DaemonSet"
+        metadata = {
+          name = "src-dst-check-daemon-{}".format(s),
+          namespace = "kube-system",
+          labels = _default_labels | {
+            "skycluster.io/pod-type": "src-dst-check-daemon"
+          },
+          annotations = _default_annotations
+        }
+        spec = {
+          selector.matchLabels = {
+            "name": "src-dst-check-daemon-{}".format(s)
+          }
+          template = {
+            metadata.labels = {
+              "name": "src-dst-check-daemon-{}".format(s)
+            }
+            spec = {
+              hostNetwork = True
+              restartPolicy = "Always"
+              containers = [{
+                name = "aws-cli"
+                image = "amazon/aws-cli:2.15.40"
+                command: ["/bin/bash"]
+                args: ["-c", _helper_script_src_dst_check]
+                stdin = True
+                stdinOnce = True
+                terminationMessagePath = "/dev/termination-log"
+                terminationMessagePolicy = "File"
+                tty = True
+                securityContext = {
+                  allowPrivilegeEscalation = True
+                  privileged = True
+                  runAsUser = 0
+                  capabilities = {
+                    add = ["ALL"]
+                  }
+                }
+                volumeMounts = [
+                  {
+                  mountPath = "/host"
+                  name = "host-slash"
+                  readOnly = True
+                  }
+                ]
+              }]
+              volumes = [
+                {
+                  hostPath = {
+                    path = "/"
+                    type = ""
+                  }
+                  name = "host-slash"
+                }
+              ]
+            }
+          }
+        }
+      }
+      providerConfigRef = {
+        name = _remoteProviderCfgsMaps[s]?.k8s
+      }
+    }
+  }
+}
 
 _helper_route_replicator_daemonset = lambda s {
   k8sv1a2.Object{
@@ -1258,5 +1416,107 @@ while true; do
     ip route add table "$TABLE_NAME" $line 2>/dev/null || true
   done
   sleep 10
+done
+"""
+
+_helper_script_src_dst_check = """\
+#!/bin/sh
+set -e
+
+echo "Ensuring source/destination check disabled on node $NODE_NAME"
+
+
+INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+echo "Instance ID: $INSTANCE_ID"
+
+while true; do
+  ENI_IDS=$(aws ec2 describe-instances \
+    --instance-ids "$INSTANCE_ID" \
+    --query "Reservations[].Instances[].NetworkInterfaces[].NetworkInterfaceId" \
+    --output text)
+
+  for eni in $ENI_IDS; do
+    echo "Disabling source-dest-check on ENI: $eni"
+    aws ec2 modify-network-interface-attribute \
+      --network-interface-id "$eni" \
+      --no-source-dest-check || true
+  done
+
+  echo "Iteration complete. Sleeping 60 seconds..."
+  sleep 60
+done
+"""
+
+_helper_sync_table_2_with_main = """\
+#!/usr/bin/env bash
+set -euo pipefail
+
+TABLE_MAIN=main
+TABLE_TARGET=2
+MATCH_REGEX='vx-submariner|via 240\.'
+SLEEP=10
+
+log() {
+  echo "$(date -Is) $*"
+}
+
+sync_routes() {
+  tmp_main=$(mktemp)
+  tmp_target=$(mktemp)
+  tmp_main_prefixes=$(mktemp)
+  tmp_target_prefixes=$(mktemp)
+
+  ip -4 route show table $TABLE_MAIN | grep -E "$MATCH_REGEX" > $tmp_main 2>/dev/null || true
+  awk '{print $1}' $tmp_main > $tmp_main_prefixes
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -z "$line" ]; then
+      continue
+    fi
+
+    log "Processing: $line"
+
+    # Primary sanitize: remove "proto static"
+    sanitized=$(printf '%s\n' "$line" | sed -E 's/ proto static//g')
+
+    log "Trying: ip route replace $sanitized table $TABLE_TARGET"
+    if ip route replace $sanitized table $TABLE_TARGET 2>/dev/null; then
+      continue
+    fi
+
+    # Fallback sanitize: remove other kernel tokens that break "ip route replace"
+    sanitized2=$(printf '%s\n' "$sanitized" | sed -E 's/ proto kernel//g; s/ scope link//g; s/ src [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+//g')
+
+    log "Trying: ip route replace $sanitized2 table $TABLE_TARGET"
+    if ip route replace $sanitized2 table $TABLE_TARGET 2>/dev/null; then
+      continue
+    fi
+
+    log "ip route replace failed for lines: original='$line' sanitized='$sanitized' fallback='$sanitized2'"
+  done < $tmp_main
+
+  # Cleanup stale entries from target table
+  ip -4 route show table $TABLE_TARGET | grep -E "$MATCH_REGEX" > $tmp_target 2>/dev/null || true
+  awk '{print $1}' $tmp_target > $tmp_target_prefixes
+
+  while IFS= read -r tprefix || [ -n "$tprefix" ]; do
+    if [ -z "$tprefix" ]; then
+      continue
+    fi
+    if ! grep -Fxq "$tprefix" $tmp_main_prefixes; then
+      log "Deleting stale route from table $TABLE_TARGET: $tprefix"
+      ip route del "$tprefix" table $TABLE_TARGET 2>/dev/null || log "ip route del failed for: $tprefix"
+    fi
+  done < $tmp_target_prefixes
+
+  rm -f $tmp_main $tmp_target $tmp_main_prefixes $tmp_target_prefixes
+}
+
+log "Starting submariner route sync (main -> table $TABLE_TARGET), interval $SLEEP"
+while true; do
+  if ! sync_routes; then
+    log "sync error"
+  fi
+  sleep $SLEEP
 done
 """
