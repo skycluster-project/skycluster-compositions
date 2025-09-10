@@ -196,11 +196,11 @@ _items += [
 #
 # Only for aws, enable IP forwarding using aws cli command
 #
-# _items += [
-#   _helper_src_dst_check_daemonset(s) for s in _clusterNamesRef \
-#     if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
-#       or ocds?["src-dst-check-daemon-{}".format(s)]
-# ]
+_items += [
+  _helper_src_dst_check_daemonset(s) for s in _clusterNamesRef \
+    if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
+      or ocds?["src-dst-check-daemon-{}".format(s)]
+]
 _items += [
   _helper_sync_routes_daemonset(s) for s in _clusterNamesRef \
     if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
@@ -1423,10 +1423,20 @@ _helper_script_src_dst_check = """\
 #!/bin/sh
 set -e
 
-echo "Ensuring source/destination check disabled on node $NODE_NAME"
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" --connect-timeout 5 -m 5)
+if [ -z "$TOKEN" ]; then
+  echo "Failed to get AWS metadata token"
+  exit 1
+fi
 
+# use token to get instance-id
+INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+if [ -z "$INSTANCE_ID" ]; then
+  echo "Failed to get instance ID"
+  exit 1
+fi
 
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 echo "Instance ID: $INSTANCE_ID"
 
 while true; do
