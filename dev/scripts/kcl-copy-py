@@ -1,0 +1,28 @@
+import sys
+import os
+import ruamel.yaml
+
+if len(sys.argv) < 2:
+    print(f"Usage: {sys.argv[0]} <folder1> [folder2 ...]")
+    sys.exit(1)
+
+folders = sys.argv[1:]  # all arguments after script name
+for f in folders:
+    print(f"Processing folder: {f}")
+    kcl_path = os.path.join(f, "kcl/main.k")
+    composition_path = os.path.join(f, "composition.yaml")
+
+    with open(composition_path) as f:
+        data = ruamel.yaml.YAML().load(f)
+
+    with open(kcl_path) as f:
+        new_source = f.read()
+
+    for step in data['spec']['pipeline']:
+        if step.get('step') == 'resources' and 'input' in step and 'spec' in step['input'] and 'source' in step['input']['spec']:
+            step['input']['spec']['source'] = ruamel.yaml.scalarstring.PreservedScalarString(new_source)
+
+    yaml = ruamel.yaml.YAML()
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    with open(composition_path, 'w') as f:
+        yaml.dump(data, f)

@@ -1,0 +1,17 @@
+#!/bin/bash
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 <folder1> [folder2 ...]"
+  exit 1
+fi
+
+for folder in "$@"; do
+  echo "Applying [definitions] in folder: $folder"
+  if [ ! -d "$folder" ]; then
+    echo "Directory not found: $folder"
+    continue
+  fi
+  kubectl --context kind-skycluster apply -f "$folder/definition.yaml" && \
+  echo "Applying [compositions] in folder: $folder" && \
+  kubectl --context kind-skycluster apply -f "$folder/composition.yaml"
+done

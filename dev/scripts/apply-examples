@@ -1,0 +1,19 @@
+#!/bin/bash
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 <path1> [path2 ...]"
+  exit 1
+fi
+
+for path in "$@"; do
+  echo "Applying [examples] for: $path"
+  if [ ! -f "$path" ]; then
+    echo "File not found: $path"
+    continue
+  fi
+  parent=$(basename "$(dirname "$path")")
+  file=$(basename "$path")
+  dir_example=$(dirname "$path")
+  cd $dir_example/../.. && \
+  up xrd generate examples/$parent/$file
+done
