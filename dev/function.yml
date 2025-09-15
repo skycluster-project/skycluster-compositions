@@ -23,10 +23,10 @@ spec:
   # package: docker.io/etesami/function-extra-resources:v0.1.0-8-ged87229
   package: xpkg.upbound.io/crossplane-contrib/function-extra-resources:v0.1.0
 ---
-apiVersion: pkg.crossplane.io/v1beta1
-kind: Function
-metadata:
-  name: function-environment-configs
-spec:
-  # This is ignored when using the Development runtime.
-  package: xpkg.upbound.io/crossplane-contrib/function-environment-configs:v0.4.0
+# apiVersion: pkg.crossplane.io/v1beta1
+# kind: Function
+# metadata:
+#   name: function-environment-configs
+# spec:
+#   # This is ignored when using the Development runtime.
+#   package: xpkg.upbound.io/crossplane-contrib/function-environment-configs:v0.4.0

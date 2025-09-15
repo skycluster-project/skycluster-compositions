@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: submariner-patch
+  namespace: skycluster-system
+data:
+  patch.yaml: |-
+    patches:
+      - patch: |-
+          - op: add
+            path: /spec/connectionHealthCheck/enabled
+            value: false
+        target:
+          kind: Submariner
+          name: submariner
+          namespace: submariner-operator
+---
