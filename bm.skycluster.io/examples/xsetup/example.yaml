@@ -1,0 +1,26 @@
+apiVersion: bm.skycluster.io/v1alpha1
+kind: XSetup
+metadata:
+  name: example
+spec: 
+  gatewayDeviceName: example-gateway
+  workerDeviceNames:
+    - example-worker-1
+    - example-worker-2
+
+  providerRef:
+    platform: gcp
+    region: us-east1
+    zones: 
+      primary: a
+
+status:
+  log: "Setup created successfully."
+  subnetCidr: "10.20.30.0/24"
+  gateway:
+    publicIp: "<public-ip>"
+    privateIp: "<private-ip>"
+    username: "skyuser"
+  auth:
+    secretName: "example-gw-secret"
+    privateKey: "<private-key>"

@@ -31,6 +31,13 @@ spec:
     volumeType: gp2
     volumeSize: 20
   # serviceCidr: 172.16.0.0/16
+
+  # For baremetal setups only:
+  gatewayDeviceName: example-gateway
+  workerDeviceNames:
+    - example-worker-1
+    - example-worker-2
+
   providerRef:
     platform: aws
     region: us-west-2

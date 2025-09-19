@@ -24,7 +24,7 @@ spec:
 
 ```bash
 up init project skycluster.io
-up generate example
+up example generate
 up xrd generate examples/xskycluster/example.yaml 
 up composition generate apis/xskyclusters/definition.yaml
 

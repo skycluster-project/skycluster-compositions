@@ -94,17 +94,20 @@ spec:
             assert _initScripts is not Undefined, "Init scripts must be provided in the extra resources"
 
             _oxrProvPlatform = oxr.spec?.providerRef?.platform or Undefined
+            _pltf = _oxrProvPlatform # for brevity
+
             _oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
             _oxrProvZone = oxr.spec?.providerRef?.zones?.primary or Undefined
             _appId = oxr.spec?.applicationId or Undefined
+
             assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone and _appId, \
               "Provider platform, region, and primary zone and application ID must be specified in the providerRef"
 
             _oxrVpcCidr = oxr.spec?.vpcCidr or Undefined
-            assert _oxrVpcCidr, "VPC CIDR must be specified in the oxr spec"
+            assert _oxrVpcCidr or _helper_isBaremetal(_pltf), "VPC CIDR must be specified in the oxr spec"
 
             _oxrSubnets = oxr.spec?.subnets or Undefined
-            assert len(_oxrSubnets) > 0, "At least one subnet must be specified in the oxr spec"
+            assert _helper_isBaremetal(_pltf) or len(_oxrSubnets) > 0, "At least one subnet must be specified in the oxr spec"
 
             _publicKey = _skySetup.status?.keypair?.publicKey or Undefined
             assert _publicKey, "Public key must be specified in the SkySetup status"
@@ -242,6 +245,37 @@ spec:
               }
             ] if _oxrProvPlatform == "openstack" else []
 
+
+            _items += [
+              {
+                apiVersion = "bm.skycluster.io/v1alpha1"
+                kind = "XSetup"
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("xsetup")
+                  }
+                }
+                spec = {
+                  gatewayDeviceName = oxr.spec?.gatewayDeviceName or "example-gateway"
+                  workerDeviceNames = oxr.spec?.workerDeviceNames or []
+                  providerRef={
+                    platform= _oxrProvPlatform
+                    region= _oxrProvRegion
+                    zones = {
+                      primary: _oxrProvZone
+                      secondary: oxr.spec?.providerRef?.zones?.secondary
+                    }
+                  }
+                }
+              }
+            ] if _oxrProvPlatform == "baremetal" else []
+
+
             _publicIp = ocds?["xsetup"]?.Resource?.status?.gateway?.publicIp
             _privateIp = ocds?["xsetup"]?.Resource?.status?.gateway?.privateIp
             _vpcCidr = ocds?["xsetup"]?.Resource?.status?.vpc?.cidrBlock or Undefined
@@ -258,6 +292,11 @@ spec:
             }]
 
             items = _items + dxr
+
+
+            _helper_isBaremetal = lambda p {
+              p == "baremetal"
+            }
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready
