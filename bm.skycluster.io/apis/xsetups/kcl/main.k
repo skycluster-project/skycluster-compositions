@@ -29,6 +29,18 @@ _cms = _extraRes["ConfigMaps"][0]
 _skySetup = _extraRes["SkySetups"][0]
 _k8sProvCfgName = _skySetup.status?.providerConfig?.kubernetes?.name or Undefined
 
+# Gateway script for setting up tailscale and overlay network
+_gwScript = _extraRes["Scripts"][0]
+_tailscaleProbScript = _gwScript?.data?["tailscale_installation_prob.sh"] or Undefined  
+_tailscaleEnsureScript = _gwScript?.data?["tailscale_installation.sh"] or Undefined
+_pingScript = _gwScript?.data?["tailscale_ping_check_script.sh"] or Undefined
+_tailscaleSetupScript = _gwScript?.data?["tailscale_setup_script.sh"] or Undefined
+_tailscaleScriptGate = all_true([
+  _tailscaleProbScript, _tailscaleEnsureScript,
+  _tailscaleSetupScript, _pingScript
+])
+assert _tailscaleScriptGate, "All gateway scripts must be provided in the context"
+
 _ns = _skySetup.spec.namespace or "skycluster-system"
 
 _oxrProvRegion = oxr.spec.providerRef.region
@@ -57,13 +69,26 @@ _workerNodeNames = oxr.spec?.workerDeviceNames or []
 assert all_true([n in _workerNodesStr for n in _workerNodeNames]), \
   "Some worker device names not found in the configmap"
 
+# Retrieve secret containing the private key for gateway and workers
+_gwPrivateKeySecretName = _gwNodes?[_gwNodeName]?.auth?.privateKeySecretRef?.name
+_gwPrivateKeySecretKey = _gwNodes?[_gwNodeName]?.auth?.privateKeySecretRef?.key
+
+_gwSecrets = extra?["bmPrivateKeySecrets"]
+_gwSecretData = [_sec.Resource.data for _sec in _gwSecrets \
+  if _sec.Resource.metadata?.name == _gwPrivateKeySecretName] \
+    if _gwSecrets and _gwPrivateKeySecretName else []
+
+_gwPrivateKeyB64 = _gwSecretData?[0]?[_gwPrivateKeySecretKey] or Undefined
+# Decrypted private key
+_defaultPrivateKey = base64.decode(_gwPrivateKeyB64) if _gwPrivateKeyB64 else Undefined
+
 #
 # Fetch node spec and create a map with additional fields
 #
 _gwNodesMap = {
   n = {
     **_gwNodes[n]
-    sshProviderCfgName = Undefined
+    sshProviderCfgName = ocds?["ssh-pcfg-gw-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name
     sshSecretName = ocds?["sec-ssh-gw-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name
     sshGate = all_true([_gwNodes[n]?.publicIp, _defaultPrivateKey, _k8sProvCfgName])
   } for n in [_gwNodeName] if _gwNodes and n in _gwNodes
@@ -75,7 +100,7 @@ _gwNodesMap = {
 _workerNodesMap: {str:any} = {
   n = {
     **_workerNodes[n],
-    sshProviderCfgName = Undefined
+    sshProviderCfgName = ocds?["ssh-pcfg-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name
     sshSecretName = ocds?["sec-ssh-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name
     sshGate = all_true([_workerNodes[n]?.privateIp, _defaultPrivateKey, _k8sProvCfgName])
   } for n in _workerNodeNames if _workerNodes and n in _workerNodes
@@ -90,20 +115,6 @@ _subnetCidrThird = _subnetCidrOctets[2]
 _subnetCidr = "{}.{}.{}.0/24".format(_subnetCidrFirst, _subnetCidrSecond, _subnetCidrThird)
 
 
-# Retrieve secret containing the private key for gateway and workers
-_gwPrivateKeySecretName = _gwNodesMap?[_gwNodeName]?.auth?.privateKeySecretRef?.name
-_gwPrivateKeySecretKey = _gwNodesMap?[_gwNodeName]?.auth?.privateKeySecretRef?.key
-
-_gwSecrets = extra?["bmPrivateKeySecrets"]
-_gwSecretData = [_sec.Resource.data for _sec in _gwSecrets \
-  if _sec.Resource.metadata?.name == _gwPrivateKeySecretName] \
-    if _gwSecrets and _gwPrivateKeySecretName else []
-
-_gwPrivateKeyB64 = _gwSecretData?[0]?[_gwPrivateKeySecretKey] or Undefined
-# Decrypted private key
-_defaultPrivateKey = base64.decode(_gwPrivateKeyB64) if _gwPrivateKeyB64 else Undefined
-
-
 
 # Start assembling resources
 _items = []
@@ -113,7 +124,7 @@ _items = []
 # By default, since there is only one gateway node name, one will be created
 #
 _items += [
-  _helper_secret_remote("sec-ssh-gw-{}".format(n), spec.publicIp, spec.auth.username, _gwPrivateKeyB64) \
+  _helper_secret_remote("sec-ssh-gw-{}".format(n), spec.publicIp, spec.auth.username, _defaultPrivateKey) \
     for n, spec in _gwNodesMap if spec.sshGate or ocds?["sec-ssh-gw-{}".format(n)]
 ]
 
@@ -123,15 +134,10 @@ _items += [
 ]
 
 # 
-# We create secrets and provider configs for [worker] nodes as well
-# 
-# _workerSSHGates = {
-#   n = all_true([spec?.privateIp, _defaultPrivateKey, _k8sProvCfgName]) for n, spec in _workerNodeSpecs
-# }
-
-# Create SSH secrets for worker nodes
+# Create secrets and provider configs for [worker] nodes as well
+#
 _items += [
-  _helper_secret_remote("sec-ssh-{}".format(n), spec.privateIp, spec.auth.username, _gwPrivateKeyB64)
+  _helper_secret_remote("sec-ssh-{}".format(n), spec.privateIp, spec.auth.username, _defaultPrivateKey)
   for n, spec in _workerNodesMap \
     if spec.sshGate or ocds?["sec-ssh-{}".format(n)]
 ]
@@ -142,6 +148,17 @@ _items += [
   for n, spec in _workerNodesMap \
     if spec.sshGate or ocds?["ssh-pcfg-{}".format(n)]
 ]
+
+#
+# A script should be executed in the gateway to set up networking
+# It uses SSH provider config created above
+#
+_items += [
+  _helper_ssh_task_gw_overlay("ssh-gw-overlay-{}".format(n), spec.sshProviderCfgName) \
+    for n, spec in _gwNodesMap \
+      if (_tailscaleScriptGate and spec.sshProviderCfgName) or ocds?["ssh-gw-overlay-{}".format(n)]
+]
+
 
 
 extraItems = {
@@ -164,7 +181,7 @@ extraItems = {
 dxr = {
   **option("params").dxr,
   status = {
-    # log = json.encode(_workerSSHGates)
+    log = json.encode(_gwNodesMap)
     subnetCidr = _subnetCidr,
     gateway = {
       publicIp = _gwNodesMap?[_gwNodeName]?.publicIp,
@@ -185,7 +202,7 @@ items = [*_items, dxr, extraItems]
 # 
 # Create SSH secret for a DeviceNode
 # 
-_helper_secret_remote = lambda s, ip, user, pvKeyB64 {
+_helper_secret_remote = lambda s, ip, user, pvKey {
   k8sv1a2.Object{
     "metadata": {
       labels = _default_labels
@@ -211,7 +228,7 @@ _helper_secret_remote = lambda s, ip, user, pvKeyB64 {
               password = ""
               hostIP = ip
               hostPort = "22"
-              privateKey = pvKeyB64
+              privateKey = pvKey
         })}},
       }
       providerConfigRef.name = _k8sProvCfgName
@@ -263,6 +280,48 @@ _helper_provider_cfg = lambda s, ip, sshSecName {
         }}}},
       },
       providerConfigRef.name = _k8sProvCfgName
+    }
+  }
+}
+
+# Helper to install and setup tailscale
+_helper_ssh_task_gw_overlay = lambda s, pvCfgName {
+  {
+    apiVersion = "ssh.crossplane.io/v1alpha1"
+    kind = "SSHTask"
+    metadata = {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        **helper._set_resource_name(s),
+      },
+    },
+    spec = {
+      providerConfigRef.name = pvCfgName
+      forProvider = {
+        scripts = {
+          probeScript.inline = _tailscaleProbScript
+          ensureScript.inline = _tailscaleEnsureScript.replace(
+            "__TS_SETUP_SCRIPT__", _tailscaleSetupScript 
+          ).replace(
+            "__PING_CHECK_SCRIPT__", _pingScript
+          ).replace(
+            "__SUBNETCIDR__", _subnetCidr
+          ) if _tailscaleScriptGate else Undefined
+        }
+        observe = {
+          refreshPolicy = "Always"
+          capture = "both"
+          "map" = []
+        }
+        execution = {
+          sudo = True
+          shell = "/bin/bash -euo pipefail"
+          timeoutSeconds = 600
+          # TODO: change and check setting to 10 to improve speed of convergence
+          maxAttempts = 5
+        }
+        artifactPolicy.capture = "both"    
+      }
     }
   }
 }
