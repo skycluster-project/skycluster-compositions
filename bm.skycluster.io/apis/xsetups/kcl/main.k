@@ -10,6 +10,12 @@ extra = option("params")?.extraResources
 # _dxr = option("params").dxr # desired composite resource
 # dcds = option("params").dcds # desired composed resources
 
+_default_labels = {
+  **oxr.metadata?.labels,
+  "skycluster.io/managed-by" = "skycluster"
+}
+_default_annotations = {**oxr.metadata?.annotations}
+
 assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
 assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
 
@@ -21,6 +27,7 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 
 _cms = _extraRes["ConfigMaps"][0]
 _skySetup = _extraRes["SkySetups"][0]
+_k8sProvCfgName = _skySetup.status?.providerConfig?.kubernetes?.name or Undefined
 
 _ns = _skySetup.spec.namespace or "skycluster-system"
 
@@ -41,11 +48,15 @@ _gwWorkers = yaml.decode(_workerNodesStr) if _workerNodesStr else []
 
 # Only supporting one gateway node for now
 _gwNodeName = oxr.spec?.gatewayDeviceName
-_wrokerNodeNames = oxr.spec?.workerDeviceNames or []
+_workerNodeNames = oxr.spec?.workerDeviceNames or []
 
 # Fetch node spec
-_gwNodeSpec = _gwNode[_gwNodeName] if _gwNode and _gwNodeName and _gwNodeName in _gwNode else Undefined
-_workerNodeSpecs = [_gwWorkers[n] for n in _wrokerNodeNames if _gwWorkers and n in _gwWorkers] if _wrokerNodeNames else []
+_gwNodeSpec = _gwNode[_gwNodeName] \
+  if _gwNode and _gwNodeName and _gwNodeName in _gwNode else Undefined
+
+_workerNodeSpecs = [_gwWorkers[n] for n in _workerNodeNames \
+  if _gwWorkers and n in _gwWorkers] \
+    if _workerNodeNames else []
 
 
 _subnetCidr = _gwNodeSpec?.privateIp
@@ -62,13 +73,55 @@ _gwPrivateSecretKey = _gwNodeSpec?.auth?.privateKeySecretRef?.key
 # Encrypted private key:
 
 _gwSecrets = extra?["bmPrivateKeySecrets"]
-_gwSecretData = [_sec.Resource.data for _sec in _gwSecrets if _sec.Resource.metadata?.name == _gwPrivateSecretName] if _gwSecrets and _gwPrivateSecretName else []
+_gwSecretData = [_sec.Resource.data for _sec in _gwSecrets \
+  if _sec.Resource.metadata?.name == _gwPrivateSecretName] \
+    if _gwSecrets and _gwPrivateSecretName else []
 
 _gwPrivateKeyB64 = _gwSecretData?[0]?[_gwPrivateSecretKey] or Undefined
 # Decrypted private key
 _defaultPrivateKey = base64.decode(_gwPrivateKeyB64) if _gwPrivateKeyB64 else Undefined
 
 _items = []
+
+#
+# For gateway node, we create a secret and provider config
+#
+_gwSSHGate = all_true([_gwNodeSpec?.publicIp, _defaultPrivateKey, _k8sProvCfgName])
+_items += [
+  # _helper_secret_remote = lambda s, ip, user, pvKeyB64
+  _helper_secret_remote("gw", _gwNodeSpec.publicIp, _gwNodeSpec.auth.username, _gwPrivateKeyB64)
+] if _gwSSHGate or ocds?["sec-remote-ssh-gw"] else []
+
+_gwSSHSecretName = ocds?["sec-remote-ssh-gw"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+_items += [
+  # _helper_provider_cfg = lambda s, ip, sshSecName
+  _helper_provider_cfg("gw", _gwNodeSpec.publicIp, _gwSSHSecretName)
+] if _gwSSHSecretName or ocds?["ssh-pcfg-gw"] else []
+
+# 
+# We create secrets and provider configs for worker nodes as well
+# 
+_workerSSHGates = {
+  n[0] = all_true([n[1]?.privateIp, _defaultPrivateKey, _k8sProvCfgName]) for n in zip(_workerNodeNames, _workerNodeSpecs)
+}
+
+# Create SSH secrets for worker nodes
+_items += [
+  _helper_secret_remote(n[0], n[1].privateIp, n[1].auth.username, _gwPrivateKeyB64)
+  for n in zip(_workerNodeNames, _workerNodeSpecs) \
+    if _workerSSHGates[n[0]] or ocds?["sec-remote-ssh-{}".format(n[0])]
+]
+
+# Create SSH provider configs for worker nodes
+_workerSSHSecretNames = {
+  n = ocds?["sec-remote-ssh-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name \
+    for n in _workerNodeNames
+}
+_items += [
+  _helper_provider_cfg(n[0], n[1].privateIp, _workerSSHSecretNames[n[0]])
+  for n in zip(_workerNodeNames, _workerNodeSpecs) \
+    if _workerSSHSecretNames[n[0]] or ocds?["ssh-pcfg-{}".format(n[0])]
+]
 
 
 extraItems = {
@@ -91,7 +144,7 @@ extraItems = {
 dxr = {
   **option("params").dxr,
   status = {
-    # log = json.encode(extra)
+    # log = json.encode(_workerSSHGates)
     subnetCidr = _subnetCidr,
     gateway = {
       publicIp = _gwNodeSpec?.publicIp,
@@ -108,85 +161,88 @@ dxr = {
 # Collect all resources into a list for output
 items = [*_items, dxr, extraItems]
 
-# _secretSSHGate = all_true([_privateIp, _defaultPrivateKey, _providerK8SCfgName])
-# _items += [k8sv1a2.Object{
-#   "metadata": {
-#     labels = _default_labels
-#     annotations = _default_annotations | {
-#       **helper._set_resource_name("secRemoteSSH"),
-#     },
-#   },
-#   spec = {
-#     forProvider = {
-#       manifest = {
-#         apiVersion: "v1",
-#         kind: "Secret",
-#         metadata: {
-#           name: "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
-#           namespace: _ns,
-#           labels: _default_labels,
-#           annotations: _default_annotations,
-#         },
-#         type = "Opaque",
-#         stringData = {
-#           config = json.encode({
-#             username = "ubuntu"
-#             password = ""
-#             hostIP = _privateIp
-#             hostPort = "22"
-#             privateKey = base64.encode(_defaultPrivateKey)
-#           })
-#         }
-#       },
-#     }
-#     providerConfigRef.name = _providerK8SCfgName
-#   }
-# }] if _secretSSHGate or ocds?["sshSecret"] else []
 
-# _sshSecretName = ocds?["secRemoteSSH"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
-# _provCfgGate = all_true([_sshSecretName, _providerK8SCfgName])
-# _items += [k8sv1a2.Object{
-#   "metadata" = {
-#     labels = _default_labels
-#     annotations = _default_annotations | {
-#       **helper._set_resource_name("sshProviderConfig"),
-#     },
-#   },
-#   spec = {
-#     references = [{
-#       # TODO: When object is deleted, the providerconfig remains
-#       # Manual deletion of provider config does not remove the finalizer on the secret
-#       # The owner of secret still remains waiting for secret to be removed.
-#       dependsOn = {
-#         apiVersion = "v1"
-#         kind = "Secret"
-#         name = "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
-#         namespace = _ns
-#       }
-#     }]
-#     deletionPolicy = "Delete"
-#     forProvider = {
-#       manifest = {
-#         apiVersion = "ssh.crossplane.io/v1alpha1",
-#         kind = "ProviderConfig",
-#         metadata = {
-#           name = "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
-#           namespace = _ns,
-#           labels = _default_labels,
-#           annotations = _default_annotations,
-#         },
-#         spec = {
-#           credentials = {
-#             source = "Secret"
-#             secretRef = {
-#               name = _sshSecretName
-#               namespace = _ns,
-#               key = "config"
-#             }
-#           }
-#         }
-#       },
-#     },
-#     providerConfigRef.name = _providerK8SCfgName
-#   }
-# }] if _provCfgGate or ocds?["sshProviderConfig"] else []
+# 
+# Create SSH secret for a DeviceNode
+# 
+_helper_secret_remote = lambda s, ip, user, pvKeyB64 {
+  k8sv1a2.Object{
+    "metadata": {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        **helper._set_resource_name("sec-remote-ssh-{}".format(s)),
+      },
+    },
+    spec = {
+      forProvider = {
+        manifest = {
+          apiVersion: "v1",
+          kind: "Secret",
+          metadata: {
+            name: "ssh-bm-{}-{}".format(_oxrProvRegion.lower(), ip),
+            namespace: _ns,
+            labels: _default_labels,
+            annotations: _default_annotations,
+          },
+          type = "Opaque",
+          stringData = {
+            config = json.encode({
+              username = user
+              password = ""
+              hostIP = ip
+              hostPort = "22"
+              privateKey = pvKeyB64
+        })}},
+      }
+      providerConfigRef.name = _k8sProvCfgName
+    }
+  }
+}
+
+# 
+# Create SSH ProviderConfig for a DeviceNode
+# 
+_helper_provider_cfg = lambda s, ip, sshSecName {
+  k8sv1a2.Object{
+    "metadata" = {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        **helper._set_resource_name("ssh-pcfg-{}".format(s)),
+      },
+    },
+    spec = {
+      references = [{
+        # TODO: When object is deleted, the providerconfig remains
+        # Manual deletion of provider config does not remove the finalizer on the secret
+        # The owner of secret still remains waiting for secret to be removed.
+        dependsOn = {
+          apiVersion = "v1"
+          kind = "Secret"
+          name = "ssh-bm-{}-{}".format(_oxrProvRegion.lower(), ip),
+          namespace = _ns
+        }
+      }]
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "ssh.crossplane.io/v1alpha1",
+          kind = "ProviderConfig",
+          metadata = {
+            name = "ssh-bm-{}-{}".format(_oxrProvRegion.lower(), ip),
+            namespace = _ns,
+            labels = _default_labels,
+            annotations = _default_annotations,
+          },
+          spec = {
+            credentials = {
+              source = "Secret"
+              secretRef = {
+                name = sshSecName
+                namespace = _ns,
+                key = "config"
+        }}}},
+      },
+      providerConfigRef.name = _k8sProvCfgName
+    }
+  }
+}
