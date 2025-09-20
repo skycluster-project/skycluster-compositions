@@ -48,6 +48,25 @@ spec:
                   secretName:
                     type: string
                 type: object
+              deviceNodes:
+                items:
+                  properties:
+                    deviceName:
+                      type: string
+                    privateIp:
+                      type: string
+                    publicIp:
+                      type: string
+                    sshProviderConfigName:
+                      type: string
+                    sshSecretName:
+                      type: string
+                    type:
+                      type: string
+                    username:
+                      type: string
+                  type: object
+                type: array
               gateway:
                 properties:
                   privateIp:
