@@ -104,18 +104,33 @@ spec:
             _cms = _extraRes["ConfigMaps"][0]
             _skySetup = _extraRes["SkySetups"][0]
             _k8sProvCfgName = _skySetup.status?.providerConfig?.kubernetes?.name or Undefined
+            _caCertificateB64 = _skySetup.status?.ca.certificate or Undefined
+            assert _k8sProvCfgName and _caCertificateB64, "Kubernetes provider config name and CA certificate must be specified in the SkySetup status"
+            _loginUrl = _skySetup.status?.headscale?.loginUrl 
+            assert _loginUrl, "Headscale login URL must be specified in the SkySetup status"
+            _hsToken = _skySetup.status?.headscale?.token
+            assert _hsToken, "Headscale token must be specified in the SkySetup status"
 
             # Gateway script for setting up tailscale and overlay network
             _gwScript = _extraRes["Scripts"][0]
-            _tailscaleProbScript = _gwScript?.data?["tailscale_installation_prob.sh"] or Undefined  
-            _tailscaleEnsureScript = _gwScript?.data?["tailscale_installation.sh"] or Undefined
-            _pingScript = _gwScript?.data?["tailscale_ping_check_script.sh"] or Undefined
-            _tailscaleSetupScript = _gwScript?.data?["tailscale_setup_script.sh"] or Undefined
-            _tailscaleScriptGate = all_true([
-              _tailscaleProbScript, _tailscaleEnsureScript,
-              _tailscaleSetupScript, _pingScript
+
+            _tsInstallProbSc = _gwScript?.data?["tailscale_installation_prob.sh"] or Undefined  
+            _tsInstallEnsureSc = _gwScript?.data?["tailscale_installation.sh"] or Undefined
+
+            # tailscale installation
+            _envStaticScript = _gwScript?.data?["env_prepare_static_script.sh"] or Undefined
+            _envStaticProbScript = _gwScript?.data?["env_prepare_static_prob_script.sh"] or Undefined
+
+            # tailscale run script, needs variables replaced
+            _tsRunScript = _gwScript?.data?["tailscale_run_script.sh"] or Undefined
+            _tsRunProbScript = _gwScript?.data?["tailscale_run_prob_script.sh"] or Undefined
+
+            _scriptGate = all_true([
+              _tsRunScript, _tsRunProbScript,
+              _envStaticScript, _envStaticProbScript,
+              _tsInstallEnsureSc, _tsInstallProbSc,
             ])
-            assert _tailscaleScriptGate, "All gateway scripts must be provided in the context"
+            assert _scriptGate, "All gateway scripts must be provided in the context"
 
             _ns = _skySetup.spec.namespace or "skycluster-system"
 
@@ -167,6 +182,10 @@ spec:
                 sshProviderCfgName = ocds?["ssh-pcfg-gw-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name
                 sshSecretName = ocds?["sec-ssh-gw-{}".format(n)]?.Resource?.status?.atProvider?.manifest?.metadata?.name
                 sshGate = all_true([_gwNodes[n]?.publicIp, _defaultPrivateKey, _k8sProvCfgName])
+                tailscaleGate = all_true([
+                  helper._ready(ocds?["ssh-gw-overlay-{}".format(n)]),
+                  helper._ready(ocds?["ssh-gw-env-{}".format(n)])
+                ])
               } for n in [_gwNodeName] if _gwNodes and n in _gwNodes
             }
 
@@ -225,14 +244,41 @@ spec:
                 if spec.sshGate or ocds?["ssh-pcfg-{}".format(n)]
             ]
 
-            #
-            # A script should be executed in the gateway to set up networking
+            #  
+            # Tailscale installation
             # It uses SSH provider config created above
             #
             _items += [
-              _helper_ssh_task_gw_overlay("ssh-gw-overlay-{}".format(n), spec.sshProviderCfgName) \
+              _helper_ssh_task("ssh-gw-overlay-{}".format(n), spec.sshProviderCfgName, _tsInstallProbSc, _tsInstallEnsureSc) \
                 for n, spec in _gwNodesMap \
-                  if (_tailscaleScriptGate and spec.sshProviderCfgName) or ocds?["ssh-gw-overlay-{}".format(n)]
+                  if (_scriptGate and spec.sshProviderCfgName) or ocds?["ssh-gw-overlay-{}".format(n)]
+            ]
+
+            #
+            # Create some static environment setup such as creating the CA certificates
+            # These files are static and once created, normally they do not need to be re-created
+            #
+            _envStaticScript = _envStaticScript.replace("__SUBNETCIDR__", _subnetCidr)\
+              .replace("__CA_CERTIFICATE_ENCODED__", _caCertificateB64)
+            _items += [
+              _helper_ssh_task("ssh-gw-env-{}".format(n), spec.sshProviderCfgName, _envStaticProbScript, _envStaticScript) \
+                for n, spec in _gwNodesMap \
+                  if (_scriptGate and spec.sshProviderCfgName) or ocds?["ssh-gw-env-{}".format(n)]
+            ]
+
+            #
+            # Once ready a script runs the tailscale to join the overlay network
+            #
+            _tsRunScript = _tsRunScript.replace("__SUBNETCIDR__", _subnetCidr)\
+              .replace("__OVERLAY_LOGIN_URL__", _loginUrl)\
+              .replace("__OVERLAY_TOKEN__", _hsToken)\
+              .replace("__OVERLAY_HOSTNAME__", oxr.metadata?.name)
+
+            # If tailscale installation is done, then we can run the environment setup
+            _items += [
+              _helper_ssh_task("ssh-gw-run-{}".format(n), spec.sshProviderCfgName, _tsRunProbScript, _tsRunScript) \
+                for n, spec in _gwNodesMap \
+                  if (_scriptGate and spec.sshProviderCfgName and spec.tailscaleGate) or ocds?["ssh-gw-run-{}".format(n)]
             ]
 
 
@@ -257,7 +303,10 @@ spec:
             dxr = {
               **option("params").dxr,
               status = {
-                log = json.encode(_gwNodesMap)
+                # log = json.encode({
+                #   # prob = _envSetupProbScript
+                #   ensure = _envEnsureScript
+                # })
                 subnetCidr = _subnetCidr,
                 gateway = {
                   publicIp = _gwNodesMap?[_gwNodeName]?.publicIp,
@@ -361,7 +410,7 @@ spec:
             }
 
             # Helper to install and setup tailscale
-            _helper_ssh_task_gw_overlay = lambda s, pvCfgName {
+            _helper_ssh_task = lambda s, pvCfgName, pbScript, ensScript {
               {
                 apiVersion = "ssh.crossplane.io/v1alpha1"
                 kind = "SSHTask"
@@ -375,14 +424,8 @@ spec:
                   providerConfigRef.name = pvCfgName
                   forProvider = {
                     scripts = {
-                      probeScript.inline = _tailscaleProbScript
-                      ensureScript.inline = _tailscaleEnsureScript.replace(
-                        "__TS_SETUP_SCRIPT__", _tailscaleSetupScript 
-                      ).replace(
-                        "__PING_CHECK_SCRIPT__", _pingScript
-                      ).replace(
-                        "__SUBNETCIDR__", _subnetCidr
-                      ) if _tailscaleScriptGate else Undefined
+                      probeScript.inline = pbScript
+                      ensureScript.inline = ensScript
                     }
                     observe = {
                       refreshPolicy = "Always"
@@ -394,7 +437,7 @@ spec:
                       shell = "/bin/bash -euo pipefail"
                       timeoutSeconds = 600
                       # TODO: change and check setting to 10 to improve speed of convergence
-                      maxAttempts = 5
+                      maxAttempts = 2
                     }
                     artifactPolicy.capture = "both"    
                   }
