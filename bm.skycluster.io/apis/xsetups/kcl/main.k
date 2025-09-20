@@ -227,10 +227,7 @@ extraItems = {
 dxr = {
   **option("params").dxr,
   status = {
-    # log = json.encode({
-    #   # prob = _envSetupProbScript
-    #   ensure = _envEnsureScript
-    # })
+    # log = json.encode(_gwNodesMap)
     subnetCidr = _subnetCidr,
     gateway = {
       publicIp = _gwNodesMap?[_gwNodeName]?.publicIp,
@@ -241,6 +238,23 @@ dxr = {
       secretName = _gwPrivateKeySecretName or Undefined
       # privateKey = _defaultPrivateKey or Undefined
     } if _defaultPrivateKey else Undefined
+    deviceNodes = [{
+        deviceName = n
+        publicIp = spec.publicIp or Undefined
+        privateIp = spec.privateIp or Undefined
+        username = spec.auth?.username or Undefined
+        sshProviderConfigName = spec.sshProviderCfgName or Undefined
+        sshSecretName = spec.sshSecretName or Undefined
+        type = "gateway"
+      } for n, spec in _gwNodesMap] + [{
+        deviceName = n
+        privateIp = spec.privateIp or Undefined
+        username = spec.auth?.username or Undefined
+        sshProviderConfigName = spec.sshProviderCfgName or Undefined
+        sshSecretName = spec.sshSecretName or Undefined
+        type = "worker"
+      } for n, spec in _workerNodesMap
+    ]
   }
 }
 

@@ -24,3 +24,11 @@ status:
   auth:
     secretName: "example-gw-secret"
     privateKey: "<private-key>"
+  deviceNodes:
+    - deviceName: example-worker-1
+      publicIp: pw
+      privateIp: ps
+      username: sp
+      sshProviderConfigName: sp
+      sshSecretName: sp
+      type: "gateway"
