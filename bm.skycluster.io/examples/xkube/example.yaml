@@ -29,6 +29,8 @@ status:
     - privateIp: 10.135.0.23,
       deviceNodeName: savi-toronto-edge-gw,
       publicIp: 142.1.174.183,
+      ssh: example-kube-os-scinet-4jzrw
+      secret: k3s-openstack-scinet-10.135.0.23
       providerConfigs: 
         k8s: example-kube-os-scinet-mcwbq
         ssh: ssh-openstack-scinet-10.135.0.23

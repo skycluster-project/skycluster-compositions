@@ -109,15 +109,27 @@ _provisionedWorkerNodes = {
 _gwNodesMap = {
   n = {
     **_gwNodes[n]
-    sshProviderCfgName = _provisionedGwNodes[n]?.sshProviderConfigName
     sshSecretName = _provisionedGwNodes[n]?.sshSecretName
-    ssh = { # secret (object) containing kubeconfig
+    ssh = { # [sshtask] to install k3s and retrieve kubeconfig and token
       generate = "k3s-ctrl-{}".format(n)
-      observed = ocds?[generate]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+      observed = ocds?[generate]?.Resource?.metadata?.name
     }
-    secret = { # secret (object) containing kubeconfig
+    secret = { # secret (k8s object) containing kubeconfig
       generate = "sc-{}".format(n)
       observed = ocds?[generate]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+    }
+    providerConfigs = { # (k8s object)
+      ssh = {
+        observed = _provisionedGwNodes[n]?.sshProviderConfigName
+      }
+      k8s = {
+        generate = "prvCfg-{}".format(n)
+        observed = ocds?[generate]?.Resource?.metadata?.name
+      }
+      helm = {
+        generate = "helmPrvCfg-{}".format(n)
+        observed = ocds?[generate]?.Resource?.metadata?.name
+      }
     }
     secretGate = all_true([
       ocds?[ssh?.generate]?.Resource?.status?.atProvider?.observed?.fields?.token,
@@ -163,11 +175,11 @@ _k3sCtrlEnsureSc = _k3sCtrlEnsureSc.replace("__SERVICE_CIDR__", oxr.spec.service
 _items += [
   # s, pvCfgName, pbScript, ensScript
   _helper_ssh_task_k3s_ctrl(
-      "k3s-ctrl-{}".format(n),
-      spec.sshProviderCfgName,
+      spec.ssh.generate,
+      spec.providerConfigs.ssh.observed,
       _k3sCtrlProbSc, _k3sCtrlEnsureSc) \
     for n, spec in _gwNodesMap \
-      if spec.sshProviderCfgName and spec.sshSecretName or ocds?["k3s-ctrl-{}".format(n)]
+      if spec.providerConfigs.ssh.observed and spec.sshSecretName or ocds?[spec.ssh.generate]
 ] 
 
 #
@@ -177,116 +189,36 @@ _items += [
 _items += [
   # s, PubIp, PrivIp, kubecfgB64, token
   _helper_cluster_secret(
-    "k3s-sc-{}".format(n), spec.publicIp, spec.privateIp, 
+    spec.secret.generate, 
+    spec.publicIp, spec.privateIp, 
     ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.kubeconfig,
     ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.token) \
     for n, spec in _gwNodesMap \
       if spec.secretGate or ocds?[spec.secret?.generate]
 ]
 
-# #
-# # ProviderConfig K8S: Controller Kubernetes provider config connection 
-# # Multi controller is not yet supported
-# #
-# _items += [
-#   k8sv1a2.Object{
-#     "metadata" = {
-#       labels = {"skycluster.io/managed-by" = "skycluster"}
-#       annotations = {
-#         **helper._set_resource_name(cv.providerConfigs?.k8s?.generate)
-#       },
-#     },
-#     spec = {
-#       references = [{
-#         dependsOn = {
-#           apiVersion = "v1"
-#           kind = "Secret"
-#           name = cv?.secret?.observed
-#           namespace = _ns
-#         }
-#       }]
-#       deletionPolicy = "Delete"
-#       forProvider = {
-#         manifest = {
-#           apiVersion = "kubernetes.crossplane.io/v1alpha1",
-#           kind = "ProviderConfig",
-#           metadata = {
-#             name = "k8s-os-{}".format(oxr.metadata.name),
-#             namespace = _ns,
-#             labels = {
-#               "skycluster.io/managed-by" = "skycluster"
-#               "skycluster.io/config-type" = "k8s-connection-data"
-#               "skycluster.io/cluster-name" = _oxrName
-#             },
-#           },
-#           spec = {
-#             credentials = {
-#               source = "Secret"
-#               secretRef = {
-#                 name = cv?.secret?.observed
-#                 namespace = _ns,
-#                 key = "kubeconfig"
-#               }
-#             }
-#           }
-#         },
-#       },
-#       providerConfigRef.name = _skyK8SProviderCfgName
-#     }
-#   } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.k8s?.generate]
-# ]
+#
+# ProviderConfig K8S: Controller Kubernetes provider config connection 
+# Multi controller is not yet supported
+#
+_items += [
+  _helper_cluster_k8s_provider_cfg(
+    spec.providerConfigs.k8s.generate,
+    spec.secret?.observed
+  ) for n, spec in _gwNodesMap \
+    if spec.secretGate or ocds?[spec.providerConfigs.k8s.generate]
+]
 
-# #
-# # ProviderConfig Helm: Controller helm provider config connection 
-# #
-# _items += [
-#   k8sv1a2.Object{
-#     "metadata" = {
-#       labels = {"skycluster.io/managed-by" = "skycluster"}
-#       annotations = {
-#         **helper._set_resource_name(cv.providerConfigs?.helm?.generate)
-#       },
-#     },
-#     spec = {
-#       references = [{
-#         dependsOn = {
-#           apiVersion = "v1"
-#           kind = "Secret"
-#           name = cv?.secret?.observed
-#           namespace = _ns
-#         }
-#       }]
-#       deletionPolicy = "Delete"
-#       forProvider = {
-#         manifest = {
-#           apiVersion = "helm.crossplane.io/v1beta1",
-#           kind = "ProviderConfig",
-#           metadata = {
-#             name = "k8s-os-{}".format(oxr.metadata.name),
-#             namespace = _ns,
-#             labels = {
-#               "skycluster.io/managed-by" = "skycluster"
-#               "skycluster.io/config-type" = "helm-connection-data"
-#               "skycluster.io/cluster-name" = _oxrName
-#             },
-#           },
-#           spec = {
-#             credentials = {
-#               source = "Secret"
-#               secretRef = {
-#                 name = cv?.secret?.observed
-#                 namespace = _ns,
-#                 key = "kubeconfig"
-#               }
-#             }
-#           }
-#         },
-#       },
-#       providerConfigRef.name = _skyK8SProviderCfgName
-#     }
-#   } for c, cv in _ctrlObjData if cv.providerCfgGate or ocds?[cv.providerConfigs?.helm?.generate]
-# ]
-
+#
+# ProviderConfig Helm: Controller helm provider config connection 
+#
+_items += [
+  _helper_cluster_helm_provider_cfg(
+    spec.providerConfigs.helm.generate,
+    spec.secret?.observed
+  ) for n, spec in _gwNodesMap \
+      if spec.secretGate or ocds?[spec.providerConfigs?.helm?.generate]
+]
 
 
 # # extraItems = {
@@ -309,25 +241,20 @@ _items += [
 dxr = {
   **option("params").dxr,
   status = {
-    # log = json.encode({
-    #   # gwNodes = _gwNodesMap,
-    #   # workerNodes = _workerNodesMap,
-    #   k3sData = [n for n in ocds?["k3s-ctrl-{}".format(n)] or []]
-    # })
+    # log = json.encode(_gwNodesMap)
     serviceCidr = oxr.spec?.serviceCidr
     podCidr = oxr.spec?.podCidr
     # For easier access to cluster:
     # clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
     controllers = [
       {
-        privateIp = obj.privateIp or Undefined
-        publicIp = obj.publicIp or Undefined
-        providerConfigs = {
-          k8s = ""
-          ssh = obj.sshProviderCfgName or Undefined
-          helm = ""
+        **{k = v for k, v in obj if v and k in ["privateIp", "publicIp", "deviceNodeName"]}
+        **{k = str(v?["observed"]) for k, v in obj if v and k in ["secret"]}
+        **{
+          k = {
+            a = str(b?["observed"]) for a, b in v
+          } for k, v in obj if v and k in ["providerConfigs"]
         }
-        deviceNodeName = n
       } for n, obj in _gwNodesMap
     ]
     agents = [
@@ -431,6 +358,102 @@ _helper_cluster_secret = lambda s, PubIp, PrivIp, kubecfgB64, token {
             "kubeconfig" = base64.encode(base64.decode(kubecfgB64).replace(PrivIp, PubIp)) \
               if PrivIp and PubIp else kubecfgB64,
             "token" = base64.encode(token)
+          }
+        },
+      },
+      providerConfigRef.name = _k8sProvCfgName
+    }
+  }
+}
+
+_helper_cluster_k8s_provider_cfg = lambda s, secretName {
+  k8sv1a2.Object{
+    "metadata" = {
+      labels = {"skycluster.io/managed-by" = "skycluster"}
+      annotations = {
+        **helper._set_resource_name(s)
+      },
+    },
+    spec = {
+      references = [{
+        dependsOn = {
+          apiVersion = "v1"
+          kind = "Secret"
+          name = secretName
+          namespace = _ns
+        }
+      }]
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "kubernetes.crossplane.io/v1alpha1",
+          kind = "ProviderConfig",
+          metadata = {
+            name = "k8s-bm-{}".format(oxr.metadata.name),
+            namespace = _ns,
+            labels = {
+              "skycluster.io/managed-by" = "skycluster"
+              "skycluster.io/config-type" = "k8s-connection-data"
+              "skycluster.io/cluster-name" = oxr.metadata.name
+            },
+          },
+          spec = {
+            credentials = {
+              source = "Secret"
+              secretRef = {
+                name = secretName
+                namespace = _ns,
+                key = "kubeconfig"
+              }
+            }
+          }
+        },
+      },
+      providerConfigRef.name = _k8sProvCfgName
+    }
+  }
+}
+
+_helper_cluster_helm_provider_cfg = lambda s, secretName {
+  k8sv1a2.Object{
+    "metadata" = {
+      labels = {"skycluster.io/managed-by" = "skycluster"}
+      annotations = {
+        **helper._set_resource_name(s)
+      },
+    },
+    spec = {
+      references = [{
+        dependsOn = {
+          apiVersion = "v1"
+          kind = "Secret"
+          name = secretName
+          namespace = _ns
+        }
+      }]
+      deletionPolicy = "Delete"
+      forProvider = {
+        manifest = {
+          apiVersion = "helm.crossplane.io/v1beta1",
+          kind = "ProviderConfig",
+          metadata = {
+            name = "k8s-bm-{}".format(oxr.metadata.name),
+            namespace = _ns,
+            labels = {
+              "skycluster.io/managed-by" = "skycluster"
+              "skycluster.io/config-type" = "helm-connection-data"
+              "skycluster.io/cluster-name" = oxr.metadata.name
+            },
+          },
+          spec = {
+            credentials = {
+              source = "Secret"
+              secretRef = {
+                name = secretName
+                namespace = _ns,
+                key = "kubeconfig"
+              }
+            }
           }
         },
       },
