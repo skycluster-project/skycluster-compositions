@@ -32,6 +32,8 @@ spec:
                       minSize:
                         type: number
                     type: object
+                  deviceNodeName:
+                    type: string
                   highAvailability:
                     type: boolean
                   instanceType:
@@ -60,6 +62,10 @@ spec:
                     type:
                       type: string
                   type: object
+                type: array
+              nodes:
+                items:
+                  type: string
                 type: array
               podCidr:
                 properties:

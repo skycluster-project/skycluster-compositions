@@ -21,14 +21,14 @@ spec:
             properties:
               applicationId:
                 type: string
+              controlPlane:
+                properties:
+                  deviceNodeName:
+                    type: string
+                type: object
               nodes:
                 items:
-                  properties:
-                    deviceNodeName:
-                      type: string
-                    role:
-                      type: string
-                  type: object
+                  type: string
                 type: array
               podCidr:
                 type: string
@@ -53,9 +53,7 @@ spec:
               agents:
                 items:
                   properties:
-                    agent:
-                      type: string
-                    instanceType:
+                    deviceNodeName:
                       type: string
                     privateIp:
                       type: string
@@ -64,12 +62,6 @@ spec:
                         ssh:
                           type: string
                       type: object
-                    publicAccess:
-                      type: boolean
-                    publicIp:
-                      type: string
-                    ssh:
-                      type: string
                   type: object
                 type: array
               clusterSecretName:
@@ -77,9 +69,7 @@ spec:
               controllers:
                 items:
                   properties:
-                    controller:
-                      type: string
-                    instanceType:
+                    deviceNodeName:
                       type: string
                     privateIp:
                       type: string
@@ -94,10 +84,6 @@ spec:
                       type: object
                     publicIp:
                       type: string
-                    secret:
-                      type: string
-                    ssh:
-                      type: string
                   type: object
                 type: array
               externalClusterName:
@@ -108,13 +94,6 @@ spec:
                 type: string
               serviceCidr:
                 type: string
-              subnet:
-                properties:
-                  networkId:
-                    type: string
-                  subnetId:
-                    type: string
-                type: object
             type: object
         required:
         - spec

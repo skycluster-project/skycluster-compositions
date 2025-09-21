@@ -8,11 +8,11 @@ spec:
   serviceCidr: 172.23.128.0/17
   podCidr: 172.23.0.0/17
 
+  controlPlane:
+    deviceNodeName: savi-toronto-edge-gw
+    
   nodes:
-    - role: control-plane
-      deviceNodeName: "device-ref"      
-    - role: worker
-      deviceNodeName: "device-ref"
+    - "device-ref"
       
   providerRef:
     platform: baremetal
@@ -25,29 +25,19 @@ status:
   podCidr: 10.10.10.0/24
   clusterSecretName: example-cluster-secret
   externalClusterName: example-cluster-secret
-  subnet:
-    networkId: example-network-id
-    subnetId: example-subnet-id
   controllers:
     - privateIp: 10.135.0.23,
+      deviceNodeName: savi-toronto-edge-gw,
       publicIp: 142.1.174.183,
-      instanceType: m2.xlarge,
-      controller: example-kube-os-scinet-4d5tb
-      ssh: example-kube-os-scinet-4jzrw
-      secret: k3s-openstack-scinet-10.135.0.23
       providerConfigs: 
         k8s: example-kube-os-scinet-mcwbq
         ssh: ssh-openstack-scinet-10.135.0.23
         helm: helm-openstack-scinet-10.135.0.23
   agents:
-    - instanceType: m2.xlarge,
-      publicAccess: true
-      agent: example-kube-os-scinet-sq56m
-      providerConfigs: 
+    - providerConfigs: 
         ssh: ssh-openstack-scinet-10.135.0.6
-      ssh: example-kube-os-scinet-6zp55
       privateIp: 10.135.0.6
-      publicIp: 142.1.174.184
+      deviceNodeName: savi-toronto-edge-gw,
   # kubeconfig: "base64 kubeconfig"
   # token: "token"
   # controller:

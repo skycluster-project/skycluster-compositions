@@ -23,8 +23,9 @@ _oxrProvRegion = oxr.spec?.providerRef?.region or Undefined
 _oxrProvZones = oxr.spec?.providerRef?.zones or Undefined
 _oxrProvZone = oxr.spec?.providerRef?.zones?.primary or Undefined
 
-_ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name
-_it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0]
+if _oxrProvPlatform != "baremetal":
+  _ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name
+  _it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", _oxrProvZone)?[0]
 
 assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone, \
   "Provider platform, region, and primary zone and must be specified in the providerRef"
@@ -37,10 +38,10 @@ _svcCidr = oxr.spec?.serviceCidr or Undefined
 _nodesTypes = oxr.spec?.nodeTypes or Undefined
 _principal = oxr.spec?.principal or Undefined
 
-
-_a = [helper._get_instance_type(_provSettings, _it or "2vCPU-4GB", _oxrProvZone) for _it in _nodesTypes] if _nodesTypes else []
-# convert lists in _a into a single list
-_nodeTypes = [item for sublist in _a for item in sublist]
+if _oxrProvPlatform != "baremetal":
+  _a = [helper._get_instance_type(_provSettings, _it or "2vCPU-4GB", _oxrProvZone) for _it in _nodesTypes] if _nodesTypes else []
+  # convert lists in _a into a single list
+  _nodeTypes = [item for sublist in _a for item in sublist]
 
 _items = []
 
@@ -155,8 +156,8 @@ _items += [{
   }
 }] if _oxrProvPlatform == "gcp" else []
 
-
-_nodeGroups = [n for n in oxr.spec?.nodeGroups if n]
+if _oxrProvPlatform != "baremetal":
+  _nodeGroups = [n for n in oxr.spec?.nodeGroups if n]
 
 _items += [{
   apiVersion = "os.skycluster.io/v1alpha1"
@@ -216,6 +217,36 @@ _items += [{
     }
   }
 }] if _oxrProvPlatform == "openstack" else []
+
+_items += [{
+  apiVersion = "bm.skycluster.io/v1alpha1"
+  kind = "XKube"
+  metadata = {
+    labels = {
+      **oxr.metadata?.labels,
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
+    }
+    annotations = {
+      **oxr.metadata?.annotations,
+      **helper._set_resource_name("xk8s")
+    }
+  }
+  spec = {
+    applicationId = oxr.spec?.applicationId or Undefined
+    serviceCidr = oxr.spec?.serviceCidr or Undefined
+    podCidr = oxr.spec?.podCidr?.cidr or Undefined
+
+    controlPlane.deviceNodeName = oxr.spec.controlPlane?.deviceNodeName or Undefined
+
+    nodes = oxr.spec?.nodes or Undefined
+
+    providerRef = {
+      platform = _oxrProvPlatform
+      region = _oxrProvRegion
+      zones = _oxrProvZones
+    }
+  }
+}] if _oxrProvPlatform == "baremetal" else []
 
 
 if _oxrProvPlatform == "openstack":

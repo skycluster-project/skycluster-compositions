@@ -13,12 +13,16 @@ spec:
 
   # controlPlane only required for un-managed clusters
   controlPlane:
+    deviceNodeName: example-gw-node # required only for baremetal
     instanceType: "8vCPU-32GB"
     autoScaling:
       enabled: true
       minSize: 1
       maxSize: 3
     highAvailability: true
+
+  nodes: # List of device node names for baremetal, only nodes or nodeGroups is required
+    - example-node-1
 
   nodeGroups:
   # There must be at least one node group with public access
