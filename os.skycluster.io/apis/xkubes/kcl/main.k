@@ -123,10 +123,10 @@ _k3sCtrlScript = _select_scripts(_initScriptsSSH, ["k3s-controller-check"]) or {
 _k3sAgentScript: {str:str} = _select_scripts(_initScriptsSSH, ["k3s-agent"]) or {}
 
 _agentProbeScript = _replace(
-  _k3sAgentScript["probeScript"], _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
+  _k3sAgentScript["probeScript.sh"], _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
 ) if _k3sAgentScript else Undefined
 _agentEnsureScript = _replace(
-  _k3sAgentScript["ensureScript"], _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
+  _k3sAgentScript["ensureScript.sh"], _oxrProvPlatform, _oxrProvRegion, _oxrProvZone
 ) if _k3sAgentScript else Undefined
 
 
@@ -314,8 +314,8 @@ _items += [
       providerConfigRef.name = cv.providerConfigs?.ssh?.observed
       forProvider = {
         scripts = {
-          probeScript.inline = _k3sCtrlScript?["probeScript"]
-          ensureScript.inline = _k3sCtrlScript?["ensureScript"]
+          probeScript.inline = _k3sCtrlScript?["probeScript.sh"]
+          ensureScript.inline = _k3sCtrlScript?["ensureScript.sh"]
         }
         observe = {
           refreshPolicy = "Always"

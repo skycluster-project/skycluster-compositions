@@ -72,8 +72,8 @@ assert _k3sCtrlProbSc and _k3sCtrlEnsureSc, "K3s controller scripts must be prov
 _K3sAgentScript = _select_scripts(_initScriptsSSH, ["k3s-agent"])
 assert _K3sAgentScript, "K3s agent scripts must be provided in the context"
 
-_k3sAgentProbSc = _K3sAgentScript?.data?["probeScript"] or Undefined
-_k3sAgentEnsureSc = _K3sAgentScript?.data?["ensureScript"] or Undefined
+_k3sAgentProbSc = _K3sAgentScript?.data?["probeScript.sh"] or Undefined
+_k3sAgentEnsureSc = _K3sAgentScript?.data?["ensureScript.sh"] or Undefined
 assert _k3sAgentEnsureSc and _k3sAgentProbSc, "K3s agent scripts must be provided in the context"
 
 assert oxr.spec.controlPlane?.deviceNodeName, "Control plane device node name must be specified"
@@ -145,20 +145,19 @@ _gwNodesMap = {
 _workerNodesMap: {str:any} = {
   n = {
     **_workerNodes[n],
-    sshProviderCfgName = _provisionedWorkerNodes[n]?.sshProviderConfigName,
     sshSecretName = _provisionedWorkerNodes[n]?.sshSecretName,
+    ssh = { # [sshtask] to install k3s agent
+      generate = "k3s-agent-{}".format(n)
+      observed = ocds?[generate]?.Resource?.metadata?.name
+    }
+    providerConfigs = {
+      ssh = {
+        observed = _provisionedWorkerNodes[n]?.sshProviderConfigName
+      }
+    }
   } for n in _workerNodeNames \
       if _workerNodes and n in _workerNodes and n in _provisionedWorkerNodes
 }
-
-
-# # Depends on K3S controller installation
-# # _k3sAgentEnsureSc = _k3sAgentEnsureSc.replace("__K3STOKEN__", _k3sToken)\
-# #   .replace("__K3SHOSTIP__", _k3sHostIP)\
-# #   .replace("__PROVIDERPLATFORM__", _oxrProvPlatform)\
-# #   .replace("__REGION__", _oxrProvRegion)\
-# #   .replace("__ZONE__", _oxrProvZone)
-
 
 # Start assembling resources
 _items = []
@@ -220,6 +219,30 @@ _items += [
       if spec.secretGate or ocds?[spec.providerConfigs?.helm?.generate]
 ]
 
+# Currently only supporting one gateway node (one k3s controller)
+_k3sHostIP = _gwNodesMap[_gwNodeName]?.privateIp or Undefined
+_k3sToken = ocds?[_gwNodesMap[_gwNodeName].ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.token
+_kubeconfig = ocds?[_gwNodesMap[_gwNodeName].ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.kubeconfig
+# Depends on K3S controller installation
+_k3sAgentEnsureSc = _k3sAgentEnsureSc.replace("__K3STOKEN__", _k3sToken)\
+  .replace("__K3SHOSTIP__", _k3sHostIP)\
+  .replace("__PROVIDERPLATFORM__", _oxrProvPlatform)\
+  .replace("__REGION__", _oxrProvRegion)\
+  .replace("__ZONE__", _oxrProvZone)\
+  .replace("__NODE_LABELS__", "")
+  
+
+_k3sAgentGate = all_true([_k3sHostIP, _k3sToken, _kubeconfig])
+_items += [
+  # s, pvCfgName, pbScript, ensScript
+  _helper_ssh_task_k3s_agent(
+      spec.ssh.generate,
+      spec.providerConfigs.ssh.observed,
+      _k3sAgentProbSc, _k3sAgentEnsureSc) \
+    for n, spec in _workerNodesMap \
+      if spec.providerConfigs.ssh.observed and _k3sAgentGate or ocds?[spec.ssh.generate]
+]
+
 
 # # extraItems = {
 # #   apiVersion = "meta.krm.kcl.dev/v1alpha1"
@@ -245,7 +268,7 @@ dxr = {
     serviceCidr = oxr.spec?.serviceCidr
     podCidr = oxr.spec?.podCidr
     # For easier access to cluster:
-    # clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
+    clusterSecretName = [v.secret?.observed for _, v in _gwNodesMap]?[0]
     controllers = [
       {
         **{k = v for k, v in obj if v and k in ["privateIp", "publicIp", "deviceNodeName"]}
@@ -458,6 +481,41 @@ _helper_cluster_helm_provider_cfg = lambda s, secretName {
         },
       },
       providerConfigRef.name = _k8sProvCfgName
+    }
+  }
+}
+
+_helper_ssh_task_k3s_agent = lambda s, pvCfgName, pbScript, ensScript {
+  {
+    apiVersion = "ssh.crossplane.io/v1alpha1"
+    kind = "SSHTask"
+    metadata = {
+      labels = _default_labels
+      annotations = _default_annotations | {
+        **helper._set_resource_name(s),
+      },
+    },
+    spec = {
+      providerConfigRef.name = pvCfgName
+      forProvider = {
+        scripts = {
+          probeScript.inline = pbScript
+          ensureScript.inline = ensScript
+        }
+        observe = {
+          refreshPolicy = "Always"
+          capture = "both"
+          "map" = []
+        }
+        execution = {
+          sudo = True
+          shell = "/bin/bash -euo pipefail"
+          timeoutSeconds = 600
+          # TODO: change and check setting to 10 to improve speed of convergence
+          maxAttempts = 2
+        }
+        artifactPolicy.capture = "both"    
+      }
     }
   }
 }
