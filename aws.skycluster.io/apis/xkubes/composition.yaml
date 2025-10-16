@@ -135,7 +135,6 @@ spec:
             }
 
             _subnets = [{
-              # type = "public"
               type = "public" 
               cidrBlock = oxr.spec.podCidr.public
               zone = oxr.spec.providerRef.zones.primary
@@ -171,6 +170,7 @@ spec:
             ] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
 
             _items += [_helper_role_node_group("nodegroupRole")]
+            _items += _helper_ebs_role()
 
             _items += [
               _helper_access_entry(_principalArn),
@@ -640,6 +640,63 @@ spec:
               }
             }
 
+            _helper_ebs_role = lambda {
+              _items = []
+              _items += [
+                eksv1beta1.PodIdentityAssociation {
+                  metadata = {
+                    labels = {
+                      **oxr.metadata?.labels,
+                      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                    }
+                    annotations = {
+                      **oxr.metadata?.annotations,
+                      **helper._set_resource_name("ebsCSIDriverPodIdentityAssociation"),
+                    }
+                  }
+                  spec: _defaults | {
+                    forProvider = {
+                      region = _oxrProvRegion
+                      clusterNameSelector.matchControllerRef = True
+                      namespace = "kube-system"
+                      serviceAccount = "ebs-csi-controller-sa"
+                      roleArnSelector = {
+                        matchControllerRef = True
+                        matchLabels = {
+                          role = "ebs-csi-driver"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+              _items += [
+                iamv1beta1.Role {
+                  metadata = {
+                    labels = {
+                      **oxr.metadata?.labels,
+                      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                      role = "ebs-csi-driver"
+                    }
+                    annotations = {
+                      **oxr.metadata?.annotations,
+                      **helper._set_resource_name("ebsCSIDriverRole"),
+                      **helper._is_paused_label(oxr.metadata.labels)
+                    }
+                  }
+                  spec: _defaults | {
+                    forProvider = {
+                      forceDetachPolicies = True
+                      managedPolicyArns = [
+                        "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+                      ]
+                      assumeRolePolicy = _helper_ebs_driver_policy
+                  }
+                }
+              }]
+              _items
+            }
+
             _helper_cluster_auth = lambda s {
               eksv1beta1.ClusterAuth{
                 metadata = {
@@ -903,6 +960,24 @@ spec:
                 }
               }
             }
+
+            _helper_ebs_driver_policy = """\
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "pods.eks.amazonaws.com"
+                        },
+                        "Action": [
+                            "sts:AssumeRole",
+                            "sts:TagSession"
+                        ]
+                    }
+                ]
+            }
+            """
     - step: function-auto-ready
       functionRef:
         name: function-auto-ready
