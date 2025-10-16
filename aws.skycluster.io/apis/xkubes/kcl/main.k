@@ -1,11 +1,16 @@
 import json
 import crypto
+import regex
 import helper.v1alpha1.main as helper
 import provider_aws.eks.v1beta1 as eksv1beta1
 import provider_aws.eks.v1beta2 as eksv1beta2
 import provider_aws.iam.v1beta1 as iamv1beta1
 import provider_aws.ec2.v1beta1 as ec2v1beta1
 import provider_kubernetes.v1alpha2 as k8sv1a2
+
+import provider_aws.sqs.v1beta1 as sqsv1beta1
+import provider_aws.cloudwatchevents.v1beta1 as cloudwatcheventsv1beta1
+import provider_helm.v1beta1 as helmv1b1
 
 oxr = option("params")?.oxr
 assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
@@ -103,6 +108,28 @@ _items += [
 _items += [
   _helper_addon_pod_identity()
 ] if _nodeGroupReadiness or ocds?["eks-pod-identity-agent"] else []
+
+##### Karpenter Settings #####
+
+_items += _helper_karpenter_roles(oxr.metadata.name)
+_items += _helper_karpenter_sqs_cloudwatch(oxr.metadata.name)
+
+_ProvCfgHelmName = ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+_items += [_helper_karpenter_helm(
+  ocds?["k8sCluster"]?.Resource?.metadata?.name,
+  ocds?["karpenterSQS"]?.Resource?.status?.atProvider?.name,
+  _ProvCfgHelmName
+)] if (helper._ready(ocds?["k8sCluster"]) and _ProvCfgHelmName) or ocds?["karpenterChart"] else []
+
+_statusAccountId = regex.replace(ocds?["karpenterInstanceNodeRole"]?.Resource?.status?.atProvider?.arn, "arn:aws:iam::(\d+):.*", "$1")
+_items += _helper_karpenter_pod_identity(
+  ocds?["k8sCluster"]?.Resource?.metadata?.name,
+  ocds?["karpenterSQS"]?.Resource?.status?.atProvider?.arn,
+  ocds?["karpenterInstanceNodeRole"]?.Resource?.status?.atProvider?.arn,
+  _statusAccountId
+) if (helper._ready(ocds?["k8sCluster"]) and helper._ready(ocds?["karpenterSQS"]) and _statusAccountId) or ocds?["podIdentityRole"] else []
+
+##### ###### ###### #####
 
 _providerConfigTypes = ["helm", "kubernetes"]
 _items += [
@@ -292,7 +319,6 @@ _helper_cluster = lambda s {
       annotations = {
         **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -642,7 +668,6 @@ _helper_node_group = lambda i, ng {
       annotations = {
         **oxr.metadata?.annotations,
         **helper._set_resource_name("nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -869,6 +894,498 @@ _helper_route = lambda t {
   }
 }
 
+_helper_karpenter_roles = lambda _id {
+  [
+    iamv1beta1.Role{
+      metadata = {
+        labels = {
+          role = "karpenter"
+          **oxr.metadata?.labels,
+        }
+        annotations = {
+          **oxr.metadata?.annotations,
+          **helper._set_resource_name("karpenterInstanceNodeRole"),
+        }
+        generateName = "karpenter-{}-".format(_id)
+      },
+      spec: _defaults | {
+        forProvider = {
+          assumeRolePolicy = json.encode({
+            Version = "2012-10-17",
+            Statement = [
+              {
+                Effect = "Allow",
+                Principal = { Service = ["ec2.amazonaws.com"] },
+                Action = ["sts:AssumeRole"]
+              }
+            ]
+          }),
+          forceDetachPolicies = True
+        },
+        providerConfigRef = {
+          name = _provCfg.metadata.name
+        }
+      }
+    }
+
+    # Attach standard policies to the Karpenter node role
+    iamv1beta1.RolePolicyAttachment{
+      metadata = {
+        annotations = {
+          **helper._set_resource_name("karpenterNodeRoleEKSPolicy")
+        }
+      },
+      spec = {
+        forProvider = {
+          policyArn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+          roleSelector = { matchControllerRef = True, matchLabels = { role = "karpenter" } }
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    iamv1beta1.RolePolicyAttachment{
+      metadata = { annotations = { **helper._set_resource_name("karpenterNodeRoleCNIPolicy") } },
+      spec = {
+        forProvider = {
+          policyArn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          roleSelector = { matchControllerRef = True, matchLabels = { role = "karpenter" } }
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    iamv1beta1.RolePolicyAttachment{
+      metadata = { annotations = { **helper._set_resource_name("karpenterNodeRoleECRPolicy") } },
+      spec = {
+        forProvider = {
+          policyArn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          roleSelector = { matchControllerRef = True, matchLabels = { role = "karpenter" } }
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    iamv1beta1.RolePolicyAttachment{
+      metadata = { annotations = { **helper._set_resource_name("karpenterNodeRoleSSMPolicy") } },
+      spec = {
+        forProvider = {
+          policyArn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          roleSelector = { matchControllerRef = True, matchLabels = { role = "karpenter" } }
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    # InstanceProfile for Karpenter nodes
+    iamv1beta1.InstanceProfile{
+      metadata = {
+        annotations = { **helper._set_resource_name("karpenterInstanceProfile") }
+      },
+      spec = {
+        forProvider = {
+          roleSelector = { matchControllerRef = True, matchLabels = { role = "karpenter" } }
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+
+    # AccessEntry to allow Karpenter to interact with cluster (uses eks AccessEntry)
+    eksv1beta1.AccessEntry{
+      metadata = {
+        annotations = { **helper._set_resource_name("karpenterAccessEntry") }
+        labels = {
+          **oxr.metadata?.labels
+        }
+      },
+      spec: _defaults | {
+        forProvider = {
+          region = _oxrProvRegion,
+          type = "EC2_LINUX",
+          clusterNameSelector = {
+            matchControllerRef = True,
+          },
+          # principalArnFromRoleSelector will match the role we create above
+          principalArnFromRoleSelector = {
+            matchControllerRef = True,
+            matchLabels = { role = "karpenter" }
+          }
+        }
+      }
+    }
+  ]
+}
+
+_helper_karpenter_sqs_cloudwatch = lambda s {
+  [
+    # SQS Queue for interruption/notifications consumed by Karpenter
+    sqsv1beta1.Queue{
+      metadata = {
+        annotations = { **helper._set_resource_name("karpenterSQS") }
+        labels = { **oxr.metadata?.labels }
+      },
+      spec = {
+        forProvider = {
+          region = _oxrProvRegion,
+          name = "karpenter-{}-queue".format(s),
+          messageRetentionSeconds = 300
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+
+    # CloudWatch Event Rules (Health, Rebalance, State-change, Spot Interrupt)
+    cloudwatcheventsv1beta1.Rule{
+      metadata = {
+        annotations = { 
+          **helper._set_resource_name("karpenterRuleHealthEvent"), 
+          "crossplane.io/external-name" = "karpenter-health-{}".format(s) }
+        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "HealthEvent"}
+        name = "karpenter-health-{}".format(s)
+      },
+      spec = {
+        forProvider = {
+          region = _oxrProvRegion,
+          eventBusName = "default",
+          eventPattern = json.encode({ source = ["aws.health"], "detail-type" = ["AWS Health Event"] })
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    cloudwatcheventsv1beta1.Rule{
+      metadata = {
+        annotations = { 
+          **helper._set_resource_name("karpenterRuleInstanceRebalance"), 
+          "crossplane.io/external-name" = "karpenter-instancerebalance-{}".format(s) }
+        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "InstanceRebalance"}
+        name = "karpenter-instancerebalance-{}".format(s)
+      },
+      spec = {
+        forProvider = {
+          region = _oxrProvRegion,
+          eventBusName = "default",
+          eventPattern = json.encode({ source = ["aws.ec2"], "detail-type" = ["EC2 Instance Rebalance Recommendation"] })
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    cloudwatcheventsv1beta1.Rule{
+      metadata = {
+        annotations = { 
+          **helper._set_resource_name("karpenterRuleInstanceStateChange"), 
+          "crossplane.io/external-name" = "karpenter-instancestatechange-{}".format(s) }
+        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "InstanceStateChange"}
+        name = "karpenter-instancestatechange-{}".format(s)
+      },
+      spec = {
+        forProvider = {
+          region = _oxrProvRegion,
+          eventBusName = "default",
+          eventPattern = json.encode({ source = ["aws.ec2"], "detail-type" = ["EC2 Instance State-change Notification"] })
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+    cloudwatcheventsv1beta1.Rule{
+      metadata = {
+        annotations = { 
+          **helper._set_resource_name("karpenterRuleSpotInterrupt"), 
+          "crossplane.io/external-name" = "karpenter-spotinterrupt-{}".format(s) }
+        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "SpotInterrupt"}
+        name = "karpenter-spotinterrupt-{}".format(s)
+      },
+      spec = {
+        forProvider = {
+          region = _oxrProvRegion,
+          eventBusName = "default",
+          eventPattern = json.encode({ source = ["aws.ec2"], "detail-type" = ["EC2 Spot Instance Interruption Warning"] })
+        },
+        providerConfigRef = { name = _provCfg.metadata.name },
+        deletionPolicy = _defaults.deletionPolicy
+      }
+    }
+  ]
+}
+
+_helper_karpenter_pod_identity = lambda _clusterName, _sqsQueueArn, _instanceNodeRoleArn, _accountId {
+  [
+    iamv1beta1.Role{
+      metadata = {
+        annotations = { **helper._set_resource_name("podIdentityRole") }
+        labels = {
+          **oxr.metadata?.labels,
+          role = "pod-identity" 
+        }
+      },
+      spec = _defaults | {
+        forProvider = {
+          inlinePolicy = [
+            {
+              name = "default"
+              policy = json.encode({
+                  "Version": "2012-10-17"
+                  "Statement": [
+                    {
+                      "Sid": "AllowScopedEC2InstanceActions"
+                      "Effect": "Allow"
+                      "Resource": [
+                        "arn:aws:ec2:${_oxrProvRegion}::image/*"
+                        "arn:aws:ec2:${_oxrProvRegion}::snapshot/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:spot-instances-request/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:security-group/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:subnet/*"
+                      ]
+                      "Action": [
+                          "ec2:RunInstances"
+                          "ec2:CreateFleet"
+                      ]
+                    }
+                    {
+                      "Sid": "AllowScopedEC2LaunchTemplateAccessActions"
+                      "Effect": "Allow"
+                      "Resource": "arn:aws:ec2:${_oxrProvRegion}:*:launch-template/*"
+                      "Action": [
+                        "ec2:RunInstances"
+                        "ec2:CreateFleet"
+                      ]
+                      "Condition": {
+                        "StringEquals": {
+                          "aws:ResourceTag/kubernetes.io/cluster/${_clusterName}": "owned"
+                        }
+                        "StringLike": {
+                          "aws:ResourceTag/karpenter.sh/nodepool": "*"
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowScopedEC2InstanceActionsWithTags"
+                      "Effect": "Allow"
+                      "Resource": [
+                        "arn:aws:ec2:${_oxrProvRegion}:*:fleet/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:instance/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:volume/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:network-interface/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:launch-template/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:spot-instances-request/*"
+                      ]
+                      "Action": [
+                        "ec2:RunInstances"
+                        "ec2:CreateFleet"
+                        "ec2:CreateLaunchTemplate"
+                      ]
+                      "Condition": {
+                        "StringEquals": {
+                          "aws:RequestTag/kubernetes.io/cluster/${_clusterName}": "owned"
+                          "aws:RequestTag/eks:eks-cluster-name": _clusterName
+                        }
+                        "StringLike": {
+                          "aws:RequestTag/karpenter.sh/nodepool": "*"
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowScopedResourceCreationTagging"
+                      "Effect": "Allow"
+                      "Resource": [
+                        "arn:aws:ec2:${_oxrProvRegion}:*:fleet/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:instance/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:volume/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:network-interface/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:launch-template/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:spot-instances-request/*"
+                      ]
+                      "Action": "ec2:CreateTags"
+                      "Condition": {
+                        "StringEquals": {
+                          "aws:RequestTag/kubernetes.io/cluster/${_clusterName}": "owned"
+                          "aws:RequestTag/eks:eks-cluster-name": _clusterName
+                          "ec2:CreateAction": [
+                            "RunInstances"
+                            "CreateFleet"
+                            "CreateLaunchTemplate"
+                          ]
+                        }
+                        "StringLike": {
+                          "aws:RequestTag/karpenter.sh/nodepool": "*"
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowScopedResourceTagging"
+                      "Effect": "Allow"
+                      "Resource": "arn:aws:ec2:${_oxrProvRegion}:*:instance/*"
+                      "Action": "ec2:CreateTags"
+                      "Condition": {
+                        "StringEquals": {
+                          "aws:ResourceTag/kubernetes.io/cluster/${_clusterName}": "owned"
+                        }
+                        "StringLike": {
+                          "aws:ResourceTag/karpenter.sh/nodepool": "*"
+                        }
+                        "StringEqualsIfExists": {
+                          "aws:RequestTag/eks:eks-cluster-name": _clusterName
+                        }
+                        "ForAllValues:StringEquals": {
+                          "aws:TagKeys": [
+                            "eks:eks-cluster-name"
+                            "karpenter.sh/nodeclaim"
+                            "Name"
+                          ]
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowScopedDeletion"
+                      "Effect": "Allow"
+                      "Resource": [
+                        "arn:aws:ec2:${_oxrProvRegion}:*:instance/*"
+                        "arn:aws:ec2:${_oxrProvRegion}:*:launch-template/*"
+                      ]
+                      "Action": [
+                        "ec2:TerminateInstances"
+                        "ec2:DeleteLaunchTemplate"
+                      ]
+                      "Condition": {
+                        "StringEquals": {
+                          "aws:ResourceTag/kubernetes.io/cluster/${_clusterName}": "owned"
+                        }
+                        "StringLike": {
+                          "aws:ResourceTag/karpenter.sh/nodepool": "*"
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowRegionalReadActions"
+                      "Effect": "Allow"
+                      "Resource": "*"
+                      "Action": [
+                        "ec2:DescribeAvailabilityZones"
+                        "ec2:DescribeImages"
+                        "ec2:DescribeInstances"
+                        "ec2:DescribeInstanceTypeOfferings"
+                        "ec2:DescribeInstanceTypes"
+                        "ec2:DescribeLaunchTemplates"
+                        "ec2:DescribeSecurityGroups"
+                        "ec2:DescribeSpotPriceHistory"
+                        "ec2:DescribeSubnets"
+                      ]
+                      "Condition": {
+                        "StringEquals": {
+                          "aws:RequestedRegion": _oxrProvRegion
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowSSMReadActions"
+                      "Effect": "Allow"
+                      "Resource": "arn:aws:ssm:${_oxrProvRegion}::parameter/aws/service/*"
+                      "Action": "ssm:GetParameter"
+                    }
+                    {
+                      "Sid": "AllowPricingReadActions"
+                      "Effect": "Allow"
+                      "Resource": "*"
+                      "Action": "pricing:GetProducts"
+                    }
+                    {
+                      "Sid": "AllowInterruptionQueueActions"
+                      "Effect": "Allow"
+                      "Resource": _sqsQueueArn
+                      "Action": [
+                        "sqs:DeleteMessage"
+                        "sqs:GetQueueUrl"
+                        "sqs:ReceiveMessage"
+                      ]
+                    }
+                    {
+                      "Sid": "AllowPassingInstanceRole"
+                      "Effect": "Allow"
+                      "Resource": _instanceNodeRoleArn
+                      "Action": "iam:PassRole"
+                      "Condition": {
+                        "StringEquals": {
+                          "iam:PassedToService": "ec2.amazonaws.com"
+                        }
+                      }
+                    }
+                    {
+                      "Sid": "AllowAPIServerEndpointDiscovery"
+                      "Effect": "Allow"
+                      "Resource": "arn:aws:eks:${_oxrProvRegion}:${_accountId}:cluster/${_clusterName}"
+                      "Action": "eks:DescribeCluster"
+                    }
+                  ]
+                })
+                }
+            ]
+          assumeRolePolicy = _helper_pod_identity_policy
+        }
+      }
+    }
+
+    eksv1beta1.PodIdentityAssociation{
+      metadata = {
+        annotations = { **helper._set_resource_name("podIdentityAssociation") }
+        labels = {**oxr.metadata?.labels}
+      },
+      spec = _defaults | {
+        forProvider = {
+            region = _oxrProvRegion
+            roleArnSelector: {
+              matchControllerRef = True
+              matchLabels = { role = "pod-identity" }
+            }
+            clusterNameSelector = {
+              matchControllerRef = True
+            }
+            serviceAccount = "karpenter"
+            namespace = "karpenter"
+        }
+      }
+    }
+  ]
+}
+
+_helper_karpenter_helm = lambda _clusterName, _queueName, helmProvCfgName {
+  helmv1b1.Release{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        "skycluster.io/managed-by": "skycluster",
+      },
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("karpenterChart"),
+        "crossplane.io/external-name" = "karpenter"
+      }
+    }
+    spec = {
+      forProvider = {
+        chart = {
+          name = "karpenter"
+          repository = "oci://public.ecr.aws/karpenter"
+          version = "1.0.0"
+        }
+        namespace = "karpenter"
+        values = {
+          settings = {
+            clusterName = _clusterName
+            interruptionQueueName = _queueName
+          }
+        }
+      }
+      providerConfigRef = {
+        name = helmProvCfgName
+      }
+    }
+  }
+}
+
 _helper_ebs_driver_policy = """\
 {
     "Version": "2012-10-17",
@@ -886,3 +1403,21 @@ _helper_ebs_driver_policy = """\
     ]
 }
 """
+
+_helper_pod_identity_policy = """\
+{
+    "Version":"2012-10-17",
+    "Statement":[
+        {
+        "Sid":"AllowEksAuthToAssumeRoleForPodIdentity",
+        "Effect":"Allow",
+        "Principal":{
+            "Service":"pods.eks.amazonaws.com"
+        },
+        "Action":[
+            "sts:AssumeRole",
+            "sts:TagSession"
+        ]
+        }
+    ]
+}"""
