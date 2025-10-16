@@ -77,12 +77,13 @@ _items += [
   _helper_cluster_auth("k8sAuth")
 ] if helper._ready(ocds?["k8sCluster"]) or ocds?["k8sAuth"] else []
 
+_items += [_helper_role_node_group("nodegroupRole")]
+
 _items += [
   # The public node group is used to create nodes acting as gateways for the cluster.
-  _helper_node_group(i, ng) for i, ng in _nodeGroups
+  _helper_node_group(i, ng) for i, ng in _nodeGroups if ng.publicAccess
 ] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
 
-_items += [_helper_role_node_group("nodegroupRole")]
 _items += _helper_ebs_role()
 
 _items += [
@@ -96,18 +97,20 @@ _items += [
 ] if helper._ready(ocds?["k8sAuth"]) or ocds?["vpc-cni-addon"] else []
 
 
-_nodeGroupReadiness = any_true(
-  [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
-)
+# _nodeGroupReadiness = any_true(
+#   [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
+# )
 
 _items += [
   _helper_addon_csi()
-] if _nodeGroupReadiness or ocds?["aws-ebs-csi-driver-addon"] else []
+] 
+# if _nodeGroupReadiness or ocds?["aws-ebs-csi-driver-addon"] else []
 
 
 _items += [
   _helper_addon_pod_identity()
-] if _nodeGroupReadiness or ocds?["eks-pod-identity-agent"] else []
+] 
+# if _nodeGroupReadiness or ocds?["eks-pod-identity-agent"] else []
 
 ##### Karpenter Settings #####
 
@@ -137,7 +140,7 @@ _instanceProfileName = regex.replace(
 _provCfgK8sName = ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
 _items += [
   _helper_karpenter_node_class(ng, _instanceProfileName , _provCfgK8sName) for ng in _nodeGroups
-] if (helper._ready(ocds?["k8sCluster"]) and helper._ready(ocds?["karpenterInstanceProfile"])) or ocds?["karpenterNodeClassPublic"] else []
+] if (helper._ready(ocds?["k8sCluster"]) and helper._ready(ocds?["karpenterInstanceProfile"]) and _provCfgK8sName) or ocds?["karpenterNodeClassPublic"] else []
 
 _items += [
   _helper_karpenter_node_pools(i, ng, _provCfgK8sName) for i, ng in _nodeGroups
@@ -455,7 +458,6 @@ _helper_addon_cni = lambda {
       annotations = {
         **oxr.metadata?.annotations,
         **helper._set_resource_name("vpc-cni-addon"),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -480,7 +482,6 @@ _helper_addon_csi = lambda {
       annotations = {
         **oxr.metadata?.annotations,
         **helper._set_resource_name("aws-ebs-csi-driver-addon"),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -1396,6 +1397,10 @@ _helper_karpenter_helm = lambda _clusterName, _queueName, helmProvCfgName {
             interruptionQueueName = _queueName
           }
         }
+        set = [{
+          name = "replicas"
+          value = "1"
+        }]
       }
       providerConfigRef = {
         name = helmProvCfgName
