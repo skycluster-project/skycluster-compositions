@@ -174,10 +174,11 @@ spec:
 
             _defaultPrivateKey = _extractPrivateKey(_defaultKey?.data?["config"])
 
+            _items = []
             #
             # xinstances.aws
             #
-            _items = [
+            _items += [
               {
                 apiVersion = "aws.skycluster.io/v1alpha1"
                 kind = "XInstance"
@@ -217,7 +218,7 @@ spec:
             #
             # xinstances.gcp
             #
-            _items = [
+            _items += [
               {
                 apiVersion = "gcp.skycluster.io/v1alpha1"
                 kind = "XInstance"
@@ -257,7 +258,7 @@ spec:
             #
             # xinstances.os
             #
-            _items = [
+            _items += [
               {
                 apiVersion = "os.skycluster.io/v1alpha1"
                 kind = "XInstance"
@@ -383,8 +384,8 @@ spec:
 
             dxr = [{
               **option("params").dxr,
-              # status.log = _userData
               status = {
+                log = "yes" if oxr.spec?.providerRef?.platform == "aws" else "no"
                 if _privateIp or _publicIp:
                   network = {
                     privateIp = _privateIp

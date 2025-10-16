@@ -85,10 +85,11 @@ _userData = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)]
 
 _defaultPrivateKey = _extractPrivateKey(_defaultKey?.data?["config"])
 
+_items = []
 #
 # xinstances.aws
 #
-_items = [
+_items += [
   {
     apiVersion = "aws.skycluster.io/v1alpha1"
     kind = "XInstance"
@@ -128,7 +129,7 @@ _items = [
 #
 # xinstances.gcp
 #
-_items = [
+_items += [
   {
     apiVersion = "gcp.skycluster.io/v1alpha1"
     kind = "XInstance"
@@ -168,7 +169,7 @@ _items = [
 #
 # xinstances.os
 #
-_items = [
+_items += [
   {
     apiVersion = "os.skycluster.io/v1alpha1"
     kind = "XInstance"
@@ -294,8 +295,8 @@ _privateIp = ocds?["xinstance"]?.Resource?.status?.network?.privateIp or Undefin
 
 dxr = [{
   **option("params").dxr,
-  # status.log = _userData
   status = {
+    # log = "yes" if oxr.spec?.providerRef?.platform == "aws" else "no"
     if _privateIp or _publicIp:
       network = {
         privateIp = _privateIp
