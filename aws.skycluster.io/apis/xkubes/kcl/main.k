@@ -129,6 +129,20 @@ _items += _helper_karpenter_pod_identity(
   _statusAccountId
 ) if (helper._ready(ocds?["k8sCluster"]) and helper._ready(ocds?["karpenterSQS"]) and _statusAccountId) or ocds?["podIdentityRole"] else []
 
+_instanceProfileName = regex.replace(
+  ocds?["karpenterInstanceProfile"]?.Resource?.status?.atProvider?.arn, 
+  "arn:aws:iam::\\d+:instance-profile/(.+)", 
+  "$1"
+)
+_provCfgK8sName = ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
+_items += [
+  _helper_karpenter_node_class(ng, _instanceProfileName , _provCfgK8sName) for ng in _nodeGroups
+] if (helper._ready(ocds?["k8sCluster"]) and helper._ready(ocds?["karpenterInstanceProfile"])) or ocds?["karpenterNodeClassPublic"] else []
+
+_items += [
+  _helper_karpenter_node_pools(i, ng, _provCfgK8sName) for i, ng in _nodeGroups
+] if (helper._ready(ocds?["k8sCluster"]) and _provCfgK8sName) or ocds?["karpenterNodePoolPublic0"] else []
+
 ##### ###### ###### #####
 
 _providerConfigTypes = ["helm", "kubernetes"]
@@ -738,6 +752,10 @@ _helper_subnet = lambda i, s {
         availabilityZone = s.zone,
         vpcIdSelector.matchLabels = {
           **helper._filter_default_labels(oxr.metadata.labels)
+        }
+        tags = {
+          "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
+          "skycluster.io/cluster-name" = oxr.metadata.name
         }
         mapPublicIpOnLaunch = True if s.type == "public" else False,
       },
@@ -1386,6 +1404,120 @@ _helper_karpenter_helm = lambda _clusterName, _queueName, helmProvCfgName {
   }
 }
 
+_helper_karpenter_node_class = lambda ng, _instanceProfileName, _k8sProvCfgName {
+  k8sv1a2.Object{
+    metadata = {
+      annotations = {
+        **helper._set_resource_name("karpenterNodeClass{}".format("Public" if ng.publicAccess else "Private"))
+      }
+      labels = { 
+        **oxr.metadata?.labels,
+        "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
+      }
+    },
+    spec = {
+      deletionPolicy = "Orphan"
+      forProvider = {
+        manifest = {
+          apiVersion = "karpenter.k8s.aws/v1",
+          kind = "EC2NodeClass",
+          metadata = { name = "public" if ng.publicAccess else "private" },
+          spec = {
+            amiFamily = "AL2"
+            amiSelectorTerms = [{
+              alias = "al2@latest"
+            }]
+            tags = {
+              KarpenterNodePoolName = "public" if ng.publicAccess else "private"
+              # NodeType = "default",
+              # intent = "apps",
+              # "karpenter.sh/discovery" = _clusterName
+            },
+            subnetSelectorTerms = [{
+              tags = {
+                "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
+                "skycluster.io/cluster-name" = oxr.metadata.name
+              }}
+            ],
+            securityGroupSelectorTerms = [{
+              tags = {
+                **helper._filter_default_labels(oxr.metadata.labels)
+                "skycluster.io/secgroup-type" = "default",
+              }}
+            ],
+            instanceProfile = _instanceProfileName
+            if _xSetup?.status?.keypair?.publicKey:
+              userData = _helper_user_data(_xSetup?.status?.keypair?.publicKey)
+          }
+        }
+      },
+      providerConfigRef = { name = _k8sProvCfgName }
+    }
+  }
+}
+
+_helper_karpenter_node_pools = lambda i, ng, _k8sProvCfgName {
+  k8sv1a2.Object{
+    metadata = {
+      annotations = {
+        **helper._set_resource_name("karpenterNodePool{}{}".format("Public" if ng.publicAccess else "Private", i))
+      }
+      labels = { 
+        **oxr.metadata?.labels 
+        "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
+      }
+    },
+    spec = {
+      deletionPolicy = "Orphan"
+      forProvider = {
+        manifest = {
+          apiVersion = "karpenter.sh/v1",
+          kind = "NodePool",
+          metadata = { 
+            name = "np-{}-{}".format("public" if ng.publicAccess else "private", i), 
+          },
+          spec = {
+            disruption = {
+              consolidateAfter = "1m",
+              consolidationPolicy = "WhenEmptyOrUnderutilized"
+            },
+            limits = {
+              cpu = 1000,
+              memory = "500Gi"
+            },
+            template = {
+              metadata.labels = {
+                **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+                **{
+                  "skycluster.io/public-subnet" = "true"
+                  "submariner.io/gateway" = "true"
+                } if ng.publicAccess else {
+                  "skycluster.io/public-subnet" = "false"
+                },
+              }
+              spec = {
+                nodeClassRef = {
+                  group = "karpenter.k8s.aws",
+                  kind = "EC2NodeClass",
+                  name = "public" if ng.publicAccess else "private"
+                },
+                requirements = [
+                  # { key = "karpenter.k8s.aws/instance-category", operator = "In", values = ["c","m","r","i","d"] },
+                  # { key = "karpenter.k8s.aws/instance-cpu", operator = "In", values = ["4","8"] },
+                  # { key = "karpenter.sh/capacity-type", operator = "In", values = ["spot","on-demand"] },
+                  { key = "node.kubernetes.io/instance-type", operator = "In", values = ng.instanceTypes or ["t3.medium"] },
+                  { key = "kubernetes.io/arch", operator = "In", values = ["amd64"] }
+                ]
+              }
+            }
+          }
+        }
+      },
+      providerConfigRef = { name = _k8sProvCfgName }
+    }
+  }
+}
+
 _helper_ebs_driver_policy = """\
 {
     "Version": "2012-10-17",
@@ -1421,3 +1553,16 @@ _helper_pod_identity_policy = """\
         }
     ]
 }"""
+
+_helper_user_data = lambda k {
+"""\
+#!/bin/bash
+mkdir -p ~ec2-user/.ssh/
+touch ~ec2-user/.ssh/authorized_keys
+cat >> ~ec2-user/.ssh/authorized_keys <<EOF
+{k}
+EOF
+chmod -R go-w ~ec2-user/.ssh/authorized_keys
+chown -R ec2-user ~ec2-user/.ssh    
+""".format(k)
+}
