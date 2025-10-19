@@ -44,6 +44,9 @@ status:
   podCidr: 10.10.10.0/24
   clusterSecretName: example-cluster-secret
   externalClusterName: example-cluster-secret
+  providerConfigs: 
+    k8s: example-kube-os-scinet-mcwbq
+    helm: helm-openstack-scinet-10.135.0.23
   subnet:
     networkId: example-network-id
     subnetId: example-subnet-id

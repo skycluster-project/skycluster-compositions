@@ -25,6 +25,9 @@ status:
   podCidr: 10.10.10.0/24
   clusterSecretName: example-cluster-secret
   externalClusterName: example-cluster-secret
+  providerConfigs: 
+    k8s: example-kube-os-scinet-mcwbq
+    helm: helm-openstack-scinet-
   controllers:
     - privateIp: 10.135.0.23,
       deviceNodeName: savi-toronto-edge-gw,

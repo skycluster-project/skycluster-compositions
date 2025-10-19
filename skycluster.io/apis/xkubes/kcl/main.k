@@ -254,7 +254,8 @@ if _oxrProvPlatform == "openstack":
 
 _controllers = ocds?["xk8s"]?.Resource?.status?.controllers
 _clusterSecretName = ocds?["xk8s"]?.Resource?.status?.clusterSecretName
-
+_provCfgNameK8s = ocds?["xk8s"]?.Resource?.status?.providerConfigs?.k8s
+_provCfgNameHelm = ocds?["xk8s"]?.Resource?.status?.providerConfigs?.helm
 # ###################### dxr ######################
 
 dxr = {
@@ -262,6 +263,11 @@ dxr = {
   status = {
     clusterName = ocds?["xk8s"]?.Resource?.metadata?.name or Undefined
     externalClusterName = ocds?["xk8s"]?.Resource?.status?.externalClusterName or Undefined
+    if _provCfgNameK8s or _provCfgNameHelm:
+      providerConfigs = {
+        k8s = _provCfgNameK8s or Undefined
+        helm = _provCfgNameHelm or Undefined
+      }
     if _controllers:
       controllers = [{
           privateIp = s.privateIp or Undefined

@@ -674,6 +674,10 @@ dxr = {
     podCidr = oxr.spec?.podCidr
     # For easier access to cluster:
     clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
+    providerConfigs = { # fist controller's provider configs
+      k8s = _ctrlObjData?[[k for k, _ in _ctrlObjData][0]]?.providerConfigs?.k8s?.observed
+      helm = _ctrlObjData?[[k for k, _ in _ctrlObjData][0]]?.providerConfigs?.helm?.observed
+    }
     if _subnetId or _networkId:
       subnet = {
         subnetId = _subnetId

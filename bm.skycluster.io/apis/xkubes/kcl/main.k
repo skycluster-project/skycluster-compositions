@@ -269,6 +269,10 @@ dxr = {
     podCidr = oxr.spec?.podCidr
     # For easier access to cluster:
     clusterSecretName = [v.secret?.observed for _, v in _gwNodesMap]?[0]
+    providerConfigs = { # first controller's provider configs
+      k8s = _gwNodesMap?[_gwNodeName]?.providerConfigs?.k8s?.observed
+      helm = _gwNodesMap?[_gwNodeName]?.providerConfigs?.helm?.observed
+    }
     controllers = [
       {
         **{k = v for k, v in obj if v and k in ["privateIp", "publicIp", "deviceNodeName"]}

@@ -63,6 +63,9 @@ status:
   externalClusterName: "name"
   # Contains kubeconfig
   clusterSecretName: "cluster-secret"
+  providerConfigs: 
+    k8s: example-kube-os-scinet-mcwbq
+    helm: helm-openstack-scinet-10.135.0.23
   controllers:
     - privateIp: "privateIp"
       publicIp: "publicIp"
