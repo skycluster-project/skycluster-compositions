@@ -503,35 +503,39 @@ spec:
 
             dxr = [{
               **option("params").dxr,
-              status.apiServer = oxr?.spec?.apiServer or Undefined,
-              status.namespace = oxr?.spec?.namespace or "default",
-              status.providerConfig = {
-                helm = {
-                  name = _helmProvCfgName
-                } if _helmProvCfgName else Undefined,
-                kubernetes = {
-                  name = _k8sProvCfgName
-                } if _k8sProvCfgName else Undefined
-              } if _helmProvCfgName or _k8sProvCfgName else Undefined
-              status.submariner.connectionSecretName = ocds?["xoverlay"]?.Resource?.status?.connectionSecretName or Undefined
-              status.headscale = {
-                connectionSecretName = _headscaleSecretName,
-                loginUrl = "https://{}:8080".format(_apiServerForHeadscale) if _apiServerForHeadscale else Undefined,
-                token = _hsToken?["key"] 
-              }
-              if extra?.rootCASecret:
-                status.istio = {
-                  rootCASecretName = extra?.rootCASecret?[0]?.Resource?.metadata?.name
+              status = {
+                apiServer = oxr?.spec?.apiServer or Undefined,
+                namespace = oxr?.spec?.namespace or "default",
+                if _helmProvCfgName or _k8sProvCfgName:
+                  providerConfig = {
+                    helm = {
+                      name = _helmProvCfgName
+                    } if _helmProvCfgName else Undefined,
+                    kubernetes = {
+                      name = _k8sProvCfgName
+                    } if _k8sProvCfgName else Undefined
+                  }
+                submariner.connectionSecretName = ocds?["xoverlay"]?.Resource?.status?.connectionSecretName or Undefined
+                if _hsToken?["key"]:
+                  headscale = {
+                    connectionSecretName = _headscaleSecretName,
+                    loginUrl = "https://{}:8080".format(_apiServerForHeadscale) if _apiServerForHeadscale else Undefined,
+                    token = _hsToken?["key"] 
+                  }
+                if extra?.rootCASecret:
+                  istio = {
+                    rootCASecretName = extra?.rootCASecret?[0]?.Resource?.metadata?.name
+                  }
+                keypair = {
+                  secretName = _keypair.metadata?.name or Undefined,
+                  secretNamespace = _keypair.metadata?.namespace or "skycluster-system",
+                  publicKey = json.decode(base64.decode(_keypair.data?.config))?.publicKey or Undefined
                 }
-              status.keypair = {
-                secretName = _keypair.metadata?.name or Undefined,
-                secretNamespace = _keypair.metadata?.namespace or "skycluster-system",
-                publicKey = json.decode(base64.decode(_keypair.data?.config))?.publicKey or Undefined
-              }
-              status.ca = {
-                secretName = _caSecret.metadata?.name,
-                secretNamespace = _caSecret.metadata?.namespace,
-                certificate = _ca
+                ca = {
+                  secretName = _caSecret.metadata?.name,
+                  secretNamespace = _caSecret.metadata?.namespace,
+                  certificate = _ca
+                }
               }
               # status.log = json.encode({
               #   extraRes = extra
