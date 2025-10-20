@@ -180,8 +180,11 @@ _tcpPorts = oxr.spec.tcpPorts
 _udpPorts = oxr.spec.udpPorts
 
 _tcpPortDefaults = [
-  {"fromPort" = 30000, "toPort" = 32767},
-  {"fromPort" = 32768, "toPort" = 60999},
+  {"fromPort" = 30000, "toPort" = 30050},
+  # TODO: this is a very large range for ephemeral ports
+  # check if any ports needed here
+  # {"fromPort" = 30000, "toPort" = 32767},
+  # {"fromPort" = 32768, "toPort" = 60999}, 
 ]
 _tcpPortDefaults = _tcpPortDefaults + [
   {"fromPort" = port, "toPort" = port} 
