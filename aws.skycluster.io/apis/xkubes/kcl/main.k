@@ -516,9 +516,14 @@ _helper_access_policy_assoc = lambda arn {
         accessScope: {
           type: "cluster"
         }
-        clusterNameSelector .matchControllerRef = True
+        clusterNameSelector = {
+          matchControllerRef = True
+        }
         policyArn: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
         principalArnSelector = {
+          matchLabels = {
+            "skycluster.io/access-entry" = "standard"
+          }
           matchControllerRef = True
         }
       }
@@ -533,6 +538,7 @@ _helper_access_entry = lambda arn {
       labels = {
         **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/access-entry" = "standard"
       }
       annotations = {
         **oxr.metadata?.annotations,
@@ -703,7 +709,7 @@ _helper_node_group = lambda i, ng {
         }
         scalingConfig = {
           minSize = ng.autoScaling?.minSize or 1
-          maxSize = (ng.autoScaling?.maxSize if not ng.publicAccess else 1) or 10
+          maxSize = ng.autoScaling?.maxSize or 10
         }
         labels = {
           **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
