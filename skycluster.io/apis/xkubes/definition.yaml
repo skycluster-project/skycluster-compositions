@@ -55,6 +55,10 @@ spec:
                       type: object
                     instanceType:
                       type: string
+                    instanceTypes:
+                      items:
+                        type: string
+                      type: array
                     nodeCount:
                       type: number
                     publicAccess:

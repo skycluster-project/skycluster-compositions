@@ -29,6 +29,8 @@ spec:
   # and it is used for gateway nodes
   - nodeCount: 1
     instanceType: "4vCPU-4GB"
+    instanceTypes: 
+      - "4vCPU-4GB"
     type: default # default | user-defined only applicable for GCP
     publicAccess: true
     autoScaling: 
@@ -36,12 +38,14 @@ spec:
       minSize: 1
       maxSize: 1
     
-  - instanceTypes: "2vCPU-4GB"
-    publicAccess: false
-    autoScaling: 
-      enabled: false
-      minSize: 1
-      maxSize: 1
+  # - instanceType: "2vCPU-4GB"
+  #   instanceTypes: 
+  #     - "2vCPU-4GB"
+  #   publicAccess: false
+  #   autoScaling: 
+  #     enabled: false
+  #     minSize: 1
+  #     maxSize: 1
     
   principal: 
     type: user | role | serviceAccount | servicePrincipal | managedIdentity

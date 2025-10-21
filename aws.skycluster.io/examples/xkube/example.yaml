@@ -25,7 +25,7 @@ spec:
   principalArn: arn:aws:iam::123456789012:role/ExampleRole
   nodeGroups:
     - nodeCount: 1
-      instanceType:
+      instanceTypes:
         - t3.medium
       publicAccess: true
       autoScaling:

@@ -45,6 +45,10 @@ if _oxrProvPlatform != "baremetal":
 
 _items = []
 
+_helper_list = lambda L {
+  [x for sub in L for x in sub]
+}
+
 _items += [{
   apiVersion = "aws.skycluster.io/v1alpha1"
   kind = "XKube"
@@ -70,7 +74,7 @@ _items += [{
     nodeGroups = [
       *[{
         nodeCount = n.nodeCount or 1
-        instanceType = helper._get_instance_type(_provSettings, n.instanceType or "2vCPU-4GB", _oxrProvZone)
+        instanceTypes = _helper_list([helper._get_instance_type(_provSettings, nn or "2vCPU-4GB", _oxrProvZone) for nn in n.instanceTypes])
         publicAccess = n.publicAccess
         if n.autoScaling:
           autoScaling = {
@@ -285,13 +289,7 @@ dxr = {
       clusterSecretName = _clusterSecretName
     podCidr = ocds?["xk8s"]?.Resource?.status?.podCidr or Undefined
     serviceCidr = ocds?["xk8s"]?.Resource?.status?.serviceCidr or Undefined
-    # log = json.encode({
-    #   controllers = [{
-    #       privateIp = s.privateIp or Undefined
-    #       publicIp = s.publicIp or Undefined
-    #     } for s in _controllers
-    #   ]
-    # })
+    # log = json.encode(helper._get_instance_type(_provSettings, "8vCPU-16GB" or "2vCPU-4GB", _oxrProvZone))
   }
 }
 

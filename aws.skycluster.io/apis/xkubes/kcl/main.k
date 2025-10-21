@@ -20,6 +20,7 @@ ocds = option("params")?.ocds
 ctx = option("params")?.ctx
 assert ctx is not Undefined, "Context must be provided in the params"
 
+_oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
 _oxrProvZone = oxr.spec.providerRef.zones.primary
 _oxrProvPlatform = oxr.spec.providerRef.platform
@@ -114,8 +115,8 @@ _items += [
 
 ##### Karpenter Settings #####
 
-_items += _helper_karpenter_roles(oxr.metadata.name)
-_items += _helper_karpenter_sqs_cloudwatch(oxr.metadata.name)
+_items += _helper_karpenter_roles(_oxrName)
+_items += _helper_karpenter_sqs_cloudwatch(_oxrName)
 
 _ProvCfgHelmName = ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
 _items += [_helper_karpenter_helm(
@@ -139,7 +140,7 @@ _instanceProfileName = regex.replace(
 )
 _provCfgK8sName = ocds?["providerConfigKubernetes"]?.Resource?.status?.atProvider?.manifest?.metadata?.name
 _items += [
-  _helper_karpenter_node_class(ng, _instanceProfileName , _provCfgK8sName) for ng in _nodeGroups
+  _helper_karpenter_node_class(i, ng, _instanceProfileName , _provCfgK8sName) for i, ng in _nodeGroups
 ] if (helper._ready(ocds?["k8sCluster"]) and helper._ready(ocds?["karpenterInstanceProfile"]) and _provCfgK8sName) or ocds?["karpenterNodeClassPublic"] else []
 
 _items += [
@@ -174,13 +175,13 @@ _items += [
           apiVersion = "v1",
           kind = "Secret",
           metadata = {
-            name = "k8s-eks-{}".format(oxr.metadata.name),
+            name = "k8s-eks-{}".format(_oxrName),
             namespace = _ns,
             labels = {
               **oxr.metadata?.labels,
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
               "skycluster.io/secret-type" = "k8s-connection-data",
-              "skycluster.io/cluster-name" = oxr.metadata.name,
+              "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "aws"
             },
             annotations = {
@@ -365,7 +366,7 @@ _helper_cluster = lambda s {
           }
           subnetIdSelector = {
             matchLabels = {
-              "skycluster.io/cluster-name" = oxr.metadata.name
+              "skycluster.io/cluster-name" = _oxrName
             }
           }
         }
@@ -390,7 +391,7 @@ _helper_providerCfg = lambda t {
         dependsOn = {
           apiVersion = "v1"
           kind = "Secret"
-          name = "k8s-eks-{}".format(oxr.metadata.name)
+          name = "k8s-eks-{}".format(_oxrName)
           namespace = _ns
         }
       }]
@@ -400,11 +401,11 @@ _helper_providerCfg = lambda t {
           apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1"),
           kind = "ProviderConfig",
           metadata = {
-            name = "k8s-eks-{}".format(oxr.metadata.name),
+            name = "k8s-eks-{}".format(_oxrName),
             namespace = _ns,
             labels = {
               "skycluster.io/managed-by" = "skycluster"
-              "skycluster.io/cluster-name" = oxr.metadata.name
+              "skycluster.io/cluster-name" = _oxrName
               "skycluster.io/config-type" = "{}-connection-data".format("k8s" if t == "kubernetes" else "helm")
             },
           },
@@ -412,7 +413,7 @@ _helper_providerCfg = lambda t {
             credentials = {
               source = "Secret"
               secretRef = {
-                name = "k8s-eks-{}".format(oxr.metadata.name)
+                name = "k8s-eks-{}".format(_oxrName)
                 namespace = _ns,
                 key = "kubeconfig"
               }
@@ -665,7 +666,7 @@ _helper_cluster_auth = lambda s {
         clusterNameSelector.matchControllerRef = True
       }
       writeConnectionSecretToRef = {
-        name = "k8s-eks-auth-{}".format(oxr.metadata.name)
+        name = "k8s-eks-auth-{}".format(_oxrName)
         namespace = _connectionSecretNamespace
       }
     }
@@ -725,7 +726,7 @@ _helper_node_group = lambda i, ng {
         instanceTypes = ng.instanceTypes or ["t3.medium"]
         subnetIdSelector.matchLabels = {
           "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
-          "skycluster.io/cluster-name" = oxr.metadata.name
+          "skycluster.io/cluster-name" = _oxrName
         }
       }
     }
@@ -738,7 +739,7 @@ _helper_subnet = lambda i, s {
       labels = {
         **oxr.metadata?.labels,
         "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
-        "skycluster.io/cluster-name" = oxr.metadata.name
+        "skycluster.io/cluster-name" = _oxrName
       }
       annotations = {
         **oxr.metadata?.annotations,
@@ -756,7 +757,7 @@ _helper_subnet = lambda i, s {
         }
         tags = {
           "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
-          "skycluster.io/cluster-name" = oxr.metadata.name
+          "skycluster.io/cluster-name" = _oxrName
         }
         mapPublicIpOnLaunch = True if s.type == "public" else False,
       },
@@ -811,7 +812,7 @@ _helper_route_table = lambda t {
   ec2v1beta1.RouteTable{
     metadata = {
       labels = {
-        "skycluster.io/cluster-name" = oxr.metadata.name
+        "skycluster.io/cluster-name" = _oxrName
         "skycluster.io/public-route-table" = "true" if t == "public" else "false",
       }
       annotations = {
@@ -838,7 +839,7 @@ _helper_route_table_association = lambda t {
   ec2v1beta1.RouteTableAssociation{
     metadata = {
       labels = {
-        "skycluster.io/cluster-name" = oxr.metadata.name
+        "skycluster.io/cluster-name" = _oxrName
         "skycluster.io/public-subnet" = "true" if t == "public" else "false",
       }
       annotations = {
@@ -852,13 +853,13 @@ _helper_route_table_association = lambda t {
         region = _oxrProvRegion,
         routeTableIdSelector = {
           matchLabels = {
-            "skycluster.io/cluster-name" = oxr.metadata.name
+            "skycluster.io/cluster-name" = _oxrName
             "skycluster.io/public-route-table" = "true" if t == "public" else "false",
           },
         },
         subnetIdSelector = {
           matchLabels = {
-            "skycluster.io/cluster-name" = oxr.metadata.name
+            "skycluster.io/cluster-name" = _oxrName
             "skycluster.io/public-subnet" = "true" if t == "public" else "false",
           },
         },
@@ -874,7 +875,7 @@ _helper_route = lambda t {
   ec2v1beta1.Route{
     metadata = {
       labels = {
-        "skycluster.io/cluster-name" = oxr.metadata.name
+        "skycluster.io/cluster-name" = _oxrName
         "skycluster.io/public-route-table" = "true" if t == "public" else "false",
       }
       annotations = {
@@ -889,7 +890,7 @@ _helper_route = lambda t {
         region = _oxrProvRegion,
         routeTableIdSelector = {
           matchLabels = {
-            "skycluster.io/cluster-name" = oxr.metadata.name
+            "skycluster.io/cluster-name" = _oxrName
             "skycluster.io/public-route-table" = "true" if t == "public" else "false",
           },
         },
@@ -925,7 +926,7 @@ _helper_karpenter_roles = lambda _id {
           **oxr.metadata?.annotations,
           **helper._set_resource_name("karpenterInstanceNodeRole"),
         }
-        generateName = "karpenter-{}-".format(_id)
+        generateName = "kp-{}-".format(_id)
       },
       spec: _defaults | {
         forProvider = {
@@ -1047,7 +1048,7 @@ _helper_karpenter_sqs_cloudwatch = lambda s {
       spec = {
         forProvider = {
           region = _oxrProvRegion,
-          name = "karpenter-{}-queue".format(s),
+          name = "kp-{}-queue".format(s),
           messageRetentionSeconds = 300
         },
         providerConfigRef = { name = _provCfg.metadata.name },
@@ -1060,9 +1061,9 @@ _helper_karpenter_sqs_cloudwatch = lambda s {
       metadata = {
         annotations = { 
           **helper._set_resource_name("karpenterRuleHealthEvent"), 
-          "crossplane.io/external-name" = "karpenter-health-{}".format(s) }
-        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "HealthEvent"}
-        name = "karpenter-health-{}".format(s)
+          "crossplane.io/external-name" = "kp-health-{}".format(s) }
+        labels = {"crossplane.io/composite" = _oxrName, "type" = "HealthEvent"}
+        name = "kp-health-{}".format(s)
       },
       spec = {
         forProvider = {
@@ -1078,9 +1079,9 @@ _helper_karpenter_sqs_cloudwatch = lambda s {
       metadata = {
         annotations = { 
           **helper._set_resource_name("karpenterRuleInstanceRebalance"), 
-          "crossplane.io/external-name" = "karpenter-instancerebalance-{}".format(s) }
-        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "InstanceRebalance"}
-        name = "karpenter-instancerebalance-{}".format(s)
+          "crossplane.io/external-name" = "kp-irb-{}".format(s) }
+        labels = {"crossplane.io/composite" = _oxrName, "type" = "InstanceRebalance"}
+        name = "kp-irb-{}".format(s)
       },
       spec = {
         forProvider = {
@@ -1096,9 +1097,9 @@ _helper_karpenter_sqs_cloudwatch = lambda s {
       metadata = {
         annotations = { 
           **helper._set_resource_name("karpenterRuleInstanceStateChange"), 
-          "crossplane.io/external-name" = "karpenter-instancestatechange-{}".format(s) }
-        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "InstanceStateChange"}
-        name = "karpenter-instancestatechange-{}".format(s)
+          "crossplane.io/external-name" = "kp-isc-{}".format(s) }
+        labels = {"crossplane.io/composite" = _oxrName, "type" = "InstanceStateChange"}
+        name = "kp-isc-{}".format(s)
       },
       spec = {
         forProvider = {
@@ -1114,9 +1115,9 @@ _helper_karpenter_sqs_cloudwatch = lambda s {
       metadata = {
         annotations = { 
           **helper._set_resource_name("karpenterRuleSpotInterrupt"), 
-          "crossplane.io/external-name" = "karpenter-spotinterrupt-{}".format(s) }
-        labels = {"crossplane.io/composite" = oxr.metadata.name, "type" = "SpotInterrupt"}
-        name = "karpenter-spotinterrupt-{}".format(s)
+          "crossplane.io/external-name" = "kp-si-{}".format(s) }
+        labels = {"crossplane.io/composite" = _oxrName, "type" = "SpotInterrupt"}
+        name = "kp-si-{}".format(s)
       },
       spec = {
         forProvider = {
@@ -1409,11 +1410,11 @@ _helper_karpenter_helm = lambda _clusterName, _queueName, helmProvCfgName {
   }
 }
 
-_helper_karpenter_node_class = lambda ng, _instanceProfileName, _k8sProvCfgName {
+_helper_karpenter_node_class = lambda i, ng, _instanceProfileName, _k8sProvCfgName {
   k8sv1a2.Object{
     metadata = {
       annotations = {
-        **helper._set_resource_name("karpenterNodeClass{}".format("Public" if ng.publicAccess else "Private"))
+        **helper._set_resource_name("karpenterNodeClass{}{}".format("Public" if ng.publicAccess else "Private", i))
       }
       labels = { 
         **oxr.metadata?.labels,
@@ -1441,7 +1442,7 @@ _helper_karpenter_node_class = lambda ng, _instanceProfileName, _k8sProvCfgName 
             subnetSelectorTerms = [{
               tags = {
                 "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
-                "skycluster.io/cluster-name" = oxr.metadata.name
+                "skycluster.io/cluster-name" = _oxrName
               }}
             ],
             securityGroupSelectorTerms = [{

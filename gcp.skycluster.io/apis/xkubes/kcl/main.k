@@ -201,12 +201,11 @@ _helper_svc_acc = lambda s {
       annotations = {
         **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
       forProvider = {
-        displayName = _oxrName,
+        displayName = _oxrName
       },
       providerConfigRef = {
         name = _provCfg.metadata.name,
@@ -234,7 +233,7 @@ _helper_svc_acc_key = lambda s {
         serviceAccountIdSelector.matchControllerRef = True,
       },
       writeConnectionSecretToRef = {
-        name = "k8s-gke-sa-{}".format(oxr.metadata.name),
+        name = "k8s-gke-sa-{}".format(_oxrName),
         # name = "{}-sakey".format(oxr.metadata.uid),
         namespace = _ns,
       }
@@ -317,7 +316,7 @@ _helper_cluster = lambda s, e, p, nc {
         }
         subnetworkSelector.matchLabels = {
           **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"]),
-          "skycluster.io/cluster-name" = oxr.metadata.name
+          "skycluster.io/cluster-name" = _oxrName
         }
         nodeConfig = [{
           diskSizeGb = 20,
@@ -344,8 +343,8 @@ _helper_cluster = lambda s, e, p, nc {
           #   "skycluster-internal" # only route 10.0.0.0/8 to gateway
           # ]
         }]
-        nodeVersion = "1.32.6-gke.1060000"
-        minMasterVersion = "1.32.6-gke.1060000"
+        nodeVersion = "1.32.9-gke.1092000"
+        minMasterVersion = "1.32.9-gke.1092000"
         removeDefaultNodePool = False
         workloadIdentityConfig = [
           {
@@ -357,7 +356,7 @@ _helper_cluster = lambda s, e, p, nc {
         name = _provCfg.metadata.name,
       },
       writeConnectionSecretToRef = {
-        name = "k8s-gke-auth-{}".format(oxr.metadata.name),
+        name = "k8s-gke-auth-{}".format(_oxrName),
         # name = "{}-gkecluster".format(oxr.metadata.uid),
         namespace = _ns,
       },
@@ -447,7 +446,7 @@ _helper_subnet = lambda s {
     metadata = {
       labels = {
         **oxr.metadata?.labels,
-        "skycluster.io/cluster-name" = oxr.metadata.name
+        "skycluster.io/cluster-name" = _oxrName
       }
       annotations = {
         **oxr.metadata?.annotations,
@@ -499,13 +498,13 @@ _helper_k8s_secret = lambda s, kubeconf, pk {
           apiVersion = "v1",
           kind = "Secret",
           metadata = {
-            name = "k8s-gke-{}".format(oxr.metadata.name),
+            name = "k8s-gke-{}".format(_oxrName),
             namespace = _ns,
             labels = {
               **oxr.metadata?.labels,
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
               "skycluster.io/secret-type" = "k8s-connection-data",
-              "skycluster.io/cluster-name" = oxr.metadata.name,
+              "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "gcp"
             },
             annotations = {
@@ -540,14 +539,14 @@ _helper_providerCfg = lambda t {
         dependsOn = {
           apiVersion = "v1"
           kind = "Secret"
-          name = "k8s-gke-{}".format(oxr.metadata.name)
+          name = "k8s-gke-{}".format(_oxrName)
           namespace = _ns
         }
       }, {
         dependsOn = {
           apiVersion = "v1"
           kind = "Secret"
-          name = "k8s-gke-sa-{}".format(oxr.metadata.name),
+          name = "k8s-gke-sa-{}".format(_oxrName),
           namespace = _ns
         }
       }]
@@ -557,11 +556,11 @@ _helper_providerCfg = lambda t {
           apiVersion = "{}.crossplane.io/{}".format(t, "v1beta1" if t == "helm" else "v1alpha1"),
           kind = "ProviderConfig",
           metadata = {
-            name = "k8s-gke-{}".format(oxr.metadata.name),
+            name = "k8s-gke-{}".format(_oxrName),
             namespace = _ns,
             labels = {
               "skycluster.io/managed-by" = "skycluster"
-              "skycluster.io/cluster-name" = oxr.metadata.name
+              "skycluster.io/cluster-name" = _oxrName
               "skycluster.io/config-type" = "{}-connection-data".format("k8s" if t == "kubernetes" else "helm")
             },
           },
@@ -570,14 +569,14 @@ _helper_providerCfg = lambda t {
               source = "Secret"
               type = "GoogleApplicationCredentials"
               secretRef = {
-                name = "k8s-gke-{}".format(oxr.metadata.name)
+                name = "k8s-gke-{}".format(_oxrName)
                 namespace = _ns,
                 key = "kubeconfig"
               }
             }
             identity = {
               secretRef = {
-                name = "k8s-gke-sa-{}".format(oxr.metadata.name),
+                name = "k8s-gke-sa-{}".format(_oxrName),
                 namespace = _ns
                 key = "private_key"
               }
