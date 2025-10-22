@@ -102,9 +102,10 @@ _items += [
 #   [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
 # )
 
-_items += [
-  _helper_addon_csi()
-] 
+# TODO: Enable EBS CSI addon when needed
+# _items += [
+#   _helper_addon_csi()
+# ] 
 # if _nodeGroupReadiness or ocds?["aws-ebs-csi-driver-addon"] else []
 
 
