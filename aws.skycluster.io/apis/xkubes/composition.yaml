@@ -164,7 +164,10 @@ spec:
             _items += [_helper_route_table_association("private")]
             _items += [_helper_route("private")]
 
-            _items += [_helper_cluster("k8sCluster")]
+            _subnetsReadiness = all_true(
+              [helper._ready(ocds?["subnet{}{}".format("Public" if s.type == "public" else "Private", i)] ) for i, s in _subnets]
+            )
+            _items += [_helper_cluster("k8sCluster")] if _subnetsReadiness or ocds?["k8sCluster"] else []
 
             _items += [
               _helper_cluster_auth("k8sAuth")
