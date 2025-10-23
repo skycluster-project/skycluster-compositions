@@ -1,0 +1,21 @@
+apiVersion: skycluster.io/v1alpha1
+kind: Object
+metadata:
+  name: example-obj-pod
+  namespace: default
+spec: 
+  manifest: 
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: example-obj-pod
+      namespace: default
+      labels:
+        app: example-obj-pod
+    spec:
+      containers:
+        - name: netshoot-object
+          image: nicolaka/netshoot
+          command: ["sleep", "infinity"]
+  providerConfigRef:
+    name: mycluster-4ssr4

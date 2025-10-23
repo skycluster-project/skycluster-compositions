@@ -1,0 +1,14 @@
+apiVersion: skycluster.io/v1alpha1
+kind: Object
+metadata:
+  name: example
+  namespace: default
+spec: 
+  manifest: "none"
+  providerConfigRef:
+    name: example-provider
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+
