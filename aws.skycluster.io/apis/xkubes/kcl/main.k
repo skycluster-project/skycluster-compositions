@@ -1452,7 +1452,7 @@ _helper_karpenter_helm = lambda _clusterName, _queueName, helmProvCfgName {
         chart = {
           name = "karpenter"
           repository = "oci://public.ecr.aws/karpenter"
-          version = "1.0.0"
+          version = "1.3.4"
         }
         namespace = "karpenter"
         values = {
