@@ -84,17 +84,18 @@ _items += [_helper_route("private")]
 _items += [_helper_sg()]
 
 _items += [_helper_sg_rule_outbound()]
-
 _items += [_helper_sg_rule_inbound_icmp()]
+_items += [_helper_sg_rule_inbound_internal()]
 
 #
 # Inbound TCP security group rules
 #
-_tcpPortDefaults = [
-  {"fromPort" = 30000, "toPort" = 32767},
-  {"fromPort" = 32768, "toPort" = 60999},
-]
-_tcpPortDefaults = _tcpPortDefaults + [
+# _tcpPortDefaults = [
+#   {"fromPort" = 30000, "toPort" = 32767},
+#   {"fromPort" = 32768, "toPort" = 60999},
+# ]
+
+_tcpPortDefaults = _tcpPortDefaults if _tcpPortDefaults else [] + [
   {"fromPort" = port, "toPort" = port} 
     for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250]
 ]
@@ -542,6 +543,7 @@ _helper_sg_rule_outbound = lambda {
             "skycluster.io/secgroup-type" = "default",
           },
         },
+        description = "Allow all outbound traffic",
         protocol = "-1",
         fromPort = 0,
         toPort = 0,
@@ -576,6 +578,7 @@ _helper_sg_rule_inbound_icmp = lambda {
             "skycluster.io/secgroup-type" = "default",
           },
         },
+        description = "Allow all ICMP traffic",
         protocol = "icmp",
         fromPort = -1,
         toPort = -1,
@@ -610,11 +613,47 @@ _helper_sg_rule = lambda port, proto {
             "skycluster.io/secgroup-type" = "default",
           },
         },
+        description = "Inbound {}: {}-{}".format(proto, port.fromPort, port.toPort),
         protocol = proto,
         fromPort = port.fromPort,
         toPort = port.toPort,
         type = "ingress",
         cidrBlocks = [ "0.0.0.0/0" ],
+      },
+      providerConfigRef = {
+        name = _provCfg.metadata.name,
+      },
+    }
+  }
+}
+
+_helper_sg_rule_inbound_internal = lambda {
+  ec2v1beta1.SecurityGroupRule{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("security-group-rule-inbound-self"),
+        **helper._is_paused_label(oxr.metadata.labels),
+      }
+    },
+    spec = {
+      forProvider = {
+        region = _oxrProvRegion,
+        securityGroupIdSelector = {
+          matchLabels = helper._filter_default_labels(oxr.metadata.labels) | {
+            "skycluster.io/secgroup-type" = "default",
+          },
+        },
+        description = "Allow all internal traffic within the security group",
+        self = True
+        protocol = "-1",
+        fromPort = 0,
+        toPort = 0,
+        type = "ingress",
       },
       providerConfigRef = {
         name = _provCfg.metadata.name,

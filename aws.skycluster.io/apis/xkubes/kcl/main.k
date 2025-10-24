@@ -5,6 +5,7 @@ import helper.v1alpha1.main as helper
 import provider_aws.eks.v1beta1 as eksv1beta1
 import provider_aws.eks.v1beta2 as eksv1beta2
 import provider_aws.iam.v1beta1 as iamv1beta1
+import provider_aws.ec2.v1alpha1 as ec2v1alpha1
 import provider_aws.ec2.v1beta1 as ec2v1beta1
 import provider_kubernetes.v1alpha2 as k8sv1a2
 
@@ -20,6 +21,9 @@ ocds = option("params")?.ocds
 ctx = option("params")?.ctx
 assert ctx is not Undefined, "Context must be provided in the params"
 
+# This is provided by KCL (see extraItem at the end)
+extra = option("params")?.extraResources
+
 _oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
 _oxrProvZone = oxr.spec.providerRef.zones.primary
@@ -27,12 +31,18 @@ _oxrProvPlatform = oxr.spec.providerRef.platform
 _oxrAppId = oxr.spec.providerRef.applicationId or Undefined
 _oxrServiceCidr = oxr.spec.serviceCidr or Undefined
 
+_provSettings = _extraRes["ProviderSettings"]?[0] 
+assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
+
 assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
   "Provider region, primary zone, platform must be specified"
 assert _oxrServiceCidr, "Service CIDR must be specified in the oxr spec"
 
 _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
+
+_secGroups = extra["securityGroups"] or Undefined
+
 _provCfg = _extraRes["ProviderConfigs"][0]
 _skySetup = _extraRes["SkySetups"][0]
 _skyK8SProviderCfgName = _skySetup.status?.providerConfig?.kubernetes?.name
@@ -82,11 +92,13 @@ _items += [
 ] if helper._ready(ocds?["k8sCluster"]) or ocds?["k8sAuth"] else []
 
 _items += [_helper_role_node_group("nodegroupRole")]
+_items += [_helper_launch_template()] if _secGroups else []
 
+_lnchTemplateName = ocds?["lnchTemplatePublic"]?.Resource?.status?.atProvider?.name
 _items += [
   # The public node group is used to create nodes acting as gateways for the cluster.
-  _helper_node_group(i, ng) for i, ng in _nodeGroups if ng.publicAccess
-] if helper._ready(ocds?["vpc-cni-addon"]) or ocds?["nodeGroupPublic"] else []
+  _helper_node_group(i, ng, _lnchTemplateName) for i, ng in _nodeGroups if ng.publicAccess
+] if (helper._ready(ocds?["vpc-cni-addon"]) and _lnchTemplateName) or ocds?["nodeGroupPublic0"] else []
 
 _items += _helper_ebs_role()
 
@@ -95,15 +107,14 @@ _items += [
   _helper_access_policy_assoc(_principalArn)
 ] if _principalArn else []
 
-
 _items += [
   _helper_addon_cni()
 ] if helper._ready(ocds?["k8sAuth"]) or ocds?["vpc-cni-addon"] else []
 
 
-# _nodeGroupReadiness = any_true(
-#   [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
-# )
+_nodeGroupReadiness = any_true(
+  [helper._ready(ocds?["nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)] ) for i, ng in _nodeGroups]
+)
 
 # TODO: Enable EBS CSI addon when needed
 # _items += [
@@ -306,6 +317,24 @@ _items += [
 ] if all_true(_sshSecGroupIds) else []
 
 
+extraItems = {
+  apiVersion = "meta.krm.kcl.dev/v1alpha1"
+  kind = "ExtraResources"
+  requirements = {
+    "securityGroups" = {
+      apiVersion: "ec2.aws.upbound.io/v1beta1",
+      kind: "SecurityGroup",
+      matchLabels: {
+        "skycluster.io/managed-by": "skycluster",
+        "skycluster.io/provider-platform": "aws",
+        "skycluster.io/provider-region": _oxrProvRegion,
+        "skycluster.io/provider-zone": _oxrProvZone,
+        "skycluster.io/secgroup-type": "default"
+      }
+    }
+  }
+}
+
 dxr = {
   **option("params").dxr,
   status = {
@@ -320,11 +349,10 @@ dxr = {
       helm: ocds?["providerConfigHelm"]?.Resource?.status?.atProvider?.manifest?.metadata?.name or Undefined
     }
   }
-  # status.log = yaml.encode(ocds?["eksKubeconfigSecret"]?.Resource?.statys?.atProvider?.manifest?.metadata?.name),
+  status.log = json.encode(_xSetup?.status?.keypair) or "empty",
 }
 
-
-items =  [*_items, dxr]
+items =  [*_items, dxr, extraItems]
 
 
 #
@@ -683,7 +711,29 @@ _helper_cluster_auth = lambda s {
   }
 }
 
-_helper_node_group = lambda i, ng {
+_helper_launch_template = lambda {
+  ec2v1beta1.LaunchTemplate{
+    metadata = {
+      labels = {
+        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+      }
+      annotations = {
+        **oxr.metadata?.annotations,
+        **helper._set_resource_name("lnchTemplatePublic"),
+      }
+    }
+    spec = _defaults | {
+      forProvider = {
+        region = _oxrProvRegion
+        keyName = _xSetup?.status?.keypair?.id
+        vpcSecurityGroupIds = [sg.Resource?.status?.atProvider?.id for sg in _secGroups]
+      }
+    }
+  }
+}
+
+_helper_node_group = lambda i, ng, ltName {
   eksv1beta2.NodeGroup{
     metadata = {
       labels = {
@@ -711,6 +761,9 @@ _helper_node_group = lambda i, ng {
             "skycluster.io/iam-role" = "nodegroup"
           }
         }
+        launchTemplate = {
+          name = ltName
+        }
         scalingConfig = {
           minSize = ng.autoScaling?.minSize or 1
           maxSize = ng.autoScaling?.maxSize or 10
@@ -724,15 +777,15 @@ _helper_node_group = lambda i, ng {
             "skycluster.io/public-subnet" = "false"
           },
         }
-        remoteAccess = {
-          ec2SshKey = _xSetup?.status?.keypair?.id
-          sourceSecurityGroupIdSelector = {
-            matchLabels = {
-              **helper._filter_default_labels(oxr.metadata.labels)
-              "skycluster.io/secgroup-type" = "default",
-            }
-          }
-        }
+        # remoteAccess = {
+        #   ec2SshKey = _xSetup?.status?.keypair?.id
+        #   sourceSecurityGroupIdSelector = {
+        #     matchLabels = {
+        #       **helper._filter_default_labels(oxr.metadata.labels)
+        #       "skycluster.io/secgroup-type" = "default",
+        #     }
+        #   }
+        # }
         instanceTypes = ng.instanceTypes or ["t3.medium"]
         subnetIdSelector.matchLabels = {
           "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
