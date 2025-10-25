@@ -19,3 +19,22 @@ spec:
           command: ["sleep", "infinity"]
   providerConfigRef:
     name: mycluster-4ssr4
+---
+apiVersion: skycluster.io/v1alpha1
+kind: Object
+metadata:
+  name: example-obj-ns
+  namespace: default
+spec: 
+  compositeDeletePolicy: Foreground
+  manifest: 
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      creationTimestamp: null
+      labels:
+        skycluster.io/managed-by: skycluster
+      name: my-test-ns
+  providerConfigRef:
+    name: mycluster-l9g2x
+---

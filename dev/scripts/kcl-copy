@@ -1,1 +1,1 @@
-/home/ubuntu/venv/yaml/bin/python /usr/local/bin/kcl-copy-py "$@"
+python3 /usr/local/bin/kcl-copy-py "$@"

@@ -241,25 +241,30 @@ spec:
 
             dxr = {
               **option("params").dxr,
-              status.keypair = {
-                name = _keyPairId
-                id = _keypairName
-              } if _keyPairId and _keypairName else {},
-              status.vpc = {
-                id = _vpcId
-                cidrBlock = _vpcCidr 
-              } if _vpcId else {},
-              status.subnets = [
-                {
-                  type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
-                  id = v.status?.atProvider?.id
-                  cidrBlock = v.status?.atProvider?.cidrBlock
-                } for _, v in _ocdsSubnets if v
-              ]
-              status.gateway = {
-                publicIp = _publicIp
-                privateIp = _privateIp
-              } if _publicIp or _privateIp else {},
+              status = {
+                if _keyPairId and _keypairName:
+                  keypair = {
+                    name = _keyPairId
+                    id = _keypairName
+                  }
+                if _vpcId:
+                  vpc = {
+                    id = _vpcId
+                    cidrBlock = _vpcCidr 
+                  }
+                subnets = [
+                  {
+                    type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
+                    id = v.status?.atProvider?.id
+                    cidrBlock = v.status?.atProvider?.cidrBlock
+                  } for _, v in _ocdsSubnets if v
+                ]
+                if _publicIp or _privateIp:
+                  gateway = {
+                    publicIp = _publicIp
+                    privateIp = _privateIp
+                  } 
+              }
             }
 
             #
