@@ -44,6 +44,7 @@ _helper_object = lambda {
       forProvider.manifest = {
         apiVersion = oxr.spec.manifest.apiVersion
         kind = oxr.spec.manifest.kind
+        
         if oxr.spec.manifest?.metadata?.name:
           metadata.name = oxr.spec.manifest.metadata.name
         if oxr.spec.manifest?.metadata?.namespace:
@@ -52,7 +53,17 @@ _helper_object = lambda {
           metadata.labels = oxr.spec.manifest.metadata.labels
         if oxr.spec.manifest?.metadata?.annotations:
           metadata.annotations = oxr.spec.manifest.metadata.annotations
+        
         spec = oxr.spec.manifest?.spec
+        
+        if oxr.spec.manifest?.data: # for ConfigMap, Secret
+          data = oxr.spec.manifest.data
+        
+        if oxr.spec.manifest?.stringData: # for Secret
+          stringData = oxr.spec.manifest.stringData
+        
+        if oxr.spec.manifest?.type: # for Secret
+          type = oxr.spec.manifest.type
       }
       providerConfigRef = {
         name = oxr.spec.providerConfigRef.name
