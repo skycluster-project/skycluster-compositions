@@ -92,10 +92,6 @@ assert oxr.spec?.localCluster?.serviceCidr, "Service CIDR must be provided in th
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
 _k8sMgmtClusterName = "k8s-skycluster-management"
 
-_default_labels = { "skycluster.io/managed-by" = "skycluster" }
-
-_default_annotations = {}
-
 _clusterNames = oxr.spec?.clusterNames or []
 assert len(_clusterNames) > 0, "At least one cluster name must be provided in the spec.clusters"
 
@@ -368,8 +364,8 @@ _items += [
   # TODO: may need to introduce clean-up job
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/secret-type": "remote"}
-      annotations = _default_annotations | helper._set_resource_name("cacerts-{}".format(s))
+      labels = {"skycluster.io/secret-type": "remote"}
+      annotations = helper._set_resource_name("cacerts-{}".format(s))
     }
     spec = {
       # TODO: delete or orphan?
@@ -379,8 +375,6 @@ _items += [
         metadata = {
           name = "cacerts"
           namespace = "istio-system"
-          labels = _default_labels
-          annotations = _default_annotations
         }
         data = {
           "ca-cert.pem" = _remoteSecretsMap?[s]?.data?["ca-cert.pem"]
@@ -555,14 +549,13 @@ items = [*_items, dxr, extraItems]
 _helper_cleanup_pod = lambda s, c, kc, k8scfg {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {
+      labels = {
         "skycluster.io/pod-type": "cleanup",
         "skycluster.io/cluster-name": "{}".format(s)
       }
-      annotations = _default_annotations | \
-        helper._set_resource_name("cleanup-{}-{}".format(c.label, s)) | {
-          "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
-        }
+      annotations = helper._set_resource_name("cleanup-{}-{}".format(c.label, s)) | {
+        "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
+      }
     }
     spec =  {
       forProvider.manifest = {
@@ -571,7 +564,7 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
         metadata = { 
           name = "cleanup-{}-{}".format(c.label, s),
           namespace = "skycluster-system",
-          labels = _default_labels | {
+          labels = {
             "skycluster.io/pod-type": "cleanup-pod",
             "skycluster.io/cluster-name": s
           },
@@ -664,8 +657,8 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
 _helper_dummy_pod_svc_cidr = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = _default_annotations | helper._set_resource_name("dummy-svc-cidr-{}".format(s))
+      labels = {"skycluster.io/pod-type": "dummy-pod"}
+      annotations = helper._set_resource_name("dummy-svc-cidr-{}".format(s))
     }
     spec =  {
       forProvider.manifest = {
@@ -674,11 +667,10 @@ _helper_dummy_pod_svc_cidr = lambda s {
         metadata = { 
           name = "dummy-pod-svc-cidr-{}".format(s),
           namespace = "kube-system",
-          labels = _default_labels | {
+          labels = {
             "component": "kube-apiserver"
             "skycluster.io/pod-type": "dummy-pod"
           },
-          annotations = _default_annotations
         }
         spec = {
           restartPolicy = "Always"
@@ -701,8 +693,8 @@ _helper_dummy_pod_svc_cidr = lambda s {
 _helper_dummy_pod_cluster_cidr = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = _default_annotations | helper._set_resource_name("dummy-cluster-cidr-{}".format(s))
+      labels = {"skycluster.io/pod-type": "dummy-pod"}
+      annotations = helper._set_resource_name("dummy-cluster-cidr-{}".format(s))
     }
     spec =  {
       forProvider.manifest = {
@@ -711,11 +703,10 @@ _helper_dummy_pod_cluster_cidr = lambda s {
         metadata = { 
           name = "dummy-pod-cluster-cidr-{}".format(s),
           namespace = "kube-system",
-          labels = _default_labels | {
+          labels = {
             "component": "kube-controller-manager"
             "skycluster.io/pod-type": "dummy-pod"
           },
-          annotations = _default_annotations
         }
         spec = {
           restartPolicy = "Always"
@@ -738,8 +729,8 @@ _helper_dummy_pod_cluster_cidr = lambda s {
 _helper_rp_filter_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "rp-filter-daemon"}
-      annotations = _default_annotations | helper._set_resource_name("rp-filter-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "rp-filter-daemon"}
+      annotations = helper._set_resource_name("rp-filter-daemon-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
@@ -748,11 +739,10 @@ _helper_rp_filter_daemonset = lambda s {
         metadata = {
           name = "rp-filter-daemon-{}".format(s),
           namespace = "kube-system",
-          labels = _default_labels | {
+          labels = {
             "component": "kube-apiserver"
             "skycluster.io/pod-type": "rp-filter-daemon"
           },
-          annotations = _default_annotations
         }
         spec = {
           selector.matchLabels = {
@@ -809,8 +799,8 @@ _helper_rp_filter_daemonset = lambda s {
 _helper_sync_routes_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "sync-routes-daemon"}
-      annotations = _default_annotations | helper._set_resource_name("sync-routes-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "sync-routes-daemon"}
+      annotations = helper._set_resource_name("sync-routes-daemon-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
@@ -819,10 +809,9 @@ _helper_sync_routes_daemonset = lambda s {
         metadata = {
           name = "sync-routes-daemon-{}".format(s),
           namespace = "kube-system",
-          labels = _default_labels | {
+          labels = {
             "skycluster.io/pod-type": "sync-routes-daemon"
           },
-          annotations = _default_annotations
         }
         spec = {
           selector.matchLabels = {
@@ -879,8 +868,8 @@ _helper_sync_routes_daemonset = lambda s {
 _helper_src_dst_check_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "src-dst-check-daemon"}
-      annotations = _default_annotations | helper._set_resource_name("src-dst-check-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "src-dst-check-daemon"}
+      annotations = helper._set_resource_name("src-dst-check-daemon-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
@@ -889,10 +878,9 @@ _helper_src_dst_check_daemonset = lambda s {
         metadata = {
           name = "src-dst-check-daemon-{}".format(s),
           namespace = "kube-system",
-          labels = _default_labels | {
+          labels = {
             "skycluster.io/pod-type": "src-dst-check-daemon"
           },
-          annotations = _default_annotations
         }
         spec = {
           selector.matchLabels = {
@@ -954,8 +942,8 @@ _helper_src_dst_check_daemonset = lambda s {
 _helper_route_replicator_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "route-replicator-daemon"}
-      annotations = _default_annotations | helper._set_resource_name("route-replicator-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "route-replicator-daemon"}
+      annotations = helper._set_resource_name("route-replicator-daemon-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
@@ -964,12 +952,11 @@ _helper_route_replicator_daemonset = lambda s {
         metadata = {
           name = "route-replicator-daemon-{}".format(s),
           namespace = "kube-system",
-          labels = _default_labels | {
+          labels = {
             "component": "route-replicator"
             "skycluster.io/pod-type": "route-replicator-daemon"
             "role": "route-replicator"
           },
-          annotations = _default_annotations
         }
         spec = {
           selector.matchLabels = {
@@ -1013,8 +1000,8 @@ _helper_route_replicator_daemonset = lambda s {
 _helper_remote_secret_pod = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "istio-remote-secret"}
-      annotations = _default_annotations | helper._set_resource_name("remote-secret-{}".format(s))
+      labels = {"skycluster.io/pod-type": "istio-remote-secret"}
+      annotations = helper._set_resource_name("remote-secret-{}".format(s))
     }
     spec =  {
       forProvider.manifest = {
@@ -1023,8 +1010,7 @@ _helper_remote_secret_pod = lambda s {
         metadata = { 
           name = "istio-remote-secret-{}".format(s),
           namespace = "skycluster-system",
-          labels = _default_labels | {"skycluster.io/pod-type": "istio-remote-secret"},
-          annotations = _default_annotations
+          labels =  {"skycluster.io/pod-type": "istio-remote-secret"},
         }
         spec = {
           serviceAccountName: "skycluster-sva"
@@ -1095,8 +1081,8 @@ _helper_remote_secret_pod = lambda s {
 _helper_cacerts_pod = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/pod-type": "istio-cluster-ca-certs"}
-      annotations = _default_annotations | helper._set_resource_name(s)
+      labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"}
+      annotations = helper._set_resource_name(s)
     }
     spec =  {
       forProvider.manifest = {
@@ -1105,8 +1091,7 @@ _helper_cacerts_pod = lambda s {
         metadata = { 
           name = "istio-cacert-{}".format(s),
           namespace = "skycluster-system",
-          labels = _default_labels | {"skycluster.io/pod-type": "istio-cluster-ca-certs"},
-          annotations = _default_annotations
+          labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"},
         }
         spec = {
           serviceAccountName: "skycluster-sva"
@@ -1180,8 +1165,7 @@ _helper_cacerts_pod = lambda s {
 _helper_submariner_secret = lambda s, psk, apiServer, brokerCA, brokerToken {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name("submSec{}".format(s)),
       } 
     }
@@ -1192,10 +1176,9 @@ _helper_submariner_secret = lambda s, psk, apiServer, brokerCA, brokerToken {
         metadata = { 
           name = "submariner-connection-secret",
           namespace = "skycluster-system",
-          labels = _default_labels | {
+          labels = {
             "skycluster.io/config-type": "connection-secret"
           },
-          annotations = _default_annotations
         }
         type: "Opaque"
         stringData = {
@@ -1222,8 +1205,7 @@ _helper_submariner_secret = lambda s, psk, apiServer, brokerCA, brokerToken {
 _helper_subm_operator = lambda s, ch, platform {
   helmv1b1.Release{
     metadata = {
-      labels = _default_labels 
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name("submOp{}".format(s))
       }
     }
@@ -1345,8 +1327,8 @@ _helper_istio_operator = lambda s, ch {
 _helper_istio_remote_secret = lambda s, t {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels | {"skycluster.io/secret-type": "remote"}
-      annotations = _default_annotations | helper._set_resource_name("istio-rsec-{}-{}".format(s, t)) | {
+      labels = {"skycluster.io/secret-type": "remote"}
+      annotations = helper._set_resource_name("istio-rsec-{}-{}".format(s, t)) | {
         "skycluster.io/from-cluster": s,
         "skycluster.io/to-cluster": t
       }
@@ -1358,10 +1340,10 @@ _helper_istio_remote_secret = lambda s, t {
         metadata = {
           name = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.name
           namespace = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.namespace
-          labels = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.labels | _default_labels | {
+          labels = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.labels | {
             "skycluster.io/secret-type": "remote"
           }
-          annotations = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.annotations | _default_annotations
+          annotations = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.annotations
         }
         stringData = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.stringData
       }
