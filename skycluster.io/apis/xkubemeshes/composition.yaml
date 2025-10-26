@@ -1297,6 +1297,10 @@ spec:
                   providerConfigRef = {
                     name = _k8sProvCfgName
                   }
+                  readiness = {
+                    policy = "DeriveFromCelQuery"
+                    celQuery = "object.status.succeeded == 1"
+                  }
                 }
               }
             }

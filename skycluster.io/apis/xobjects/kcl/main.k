@@ -33,7 +33,6 @@ items = _items + dxr
 _helper_object = lambda {
   k8sv1a2.Object{
     metadata = {
-      labels = oxr.metadata.labels
       annotations = {
         **helper._set_resource_name("object")
       }
