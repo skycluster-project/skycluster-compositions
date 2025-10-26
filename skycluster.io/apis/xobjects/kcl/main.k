@@ -5,8 +5,8 @@ import provider_kubernetes.v1alpha2 as k8sv1a2
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
 
-ctx = option("params")?.ctx
-assert ctx is not Undefined, "Context must be provided in the params"
+# ctx = option("params")?.ctx
+# assert ctx is not Undefined, "Context must be provided in the params"
 
 assert oxr.spec.providerConfigRef?.name is not Undefined, "providerConfigRef name must be provided in the composite resource"
 assert oxr.spec.manifest is not Undefined, "manifest must be provided in the composite resource"
@@ -42,6 +42,10 @@ _helper_object = lambda {
       providerConfigRef = {
         name = oxr.spec.providerConfigRef.name
       }
+      # readiness = {
+      #   celQuery = ""
+      #   policy = "SuccessfulCreate"
+      # }
     }
   }
 }

@@ -568,95 +568,99 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
             "skycluster.io/pod-type": "cleanup-pod",
             "skycluster.io/cluster-name": s
           },
-        }
+        } 
         spec = {
           completions = 1
           backoffLimit = 0
-          template = {
-            metadata = {
-              labels = {
-                "skycluster.io/pod-type": "cleanup-pod",
-                "skycluster.io/cluster-name": s
+          if ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template:
+            # reuse existing template if exists, for some reason, pod template spec ends up being modified
+            template = ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template
+          else:
+            template = {
+              metadata = {
+                labels = {
+                  "skycluster.io/pod-type": "cleanup-pod",
+                  "skycluster.io/cluster-name": s
+                }
+              }
+              spec = {
+                serviceAccountName = "skycluster-sva"
+                restartPolicy = "Never"
+                volumes = [{
+                    name = "work"
+                    emptyDir = {}
+                  }, {
+                    name = "script"
+                    configMap = {
+                      name = "script-kubemesh-setup"
+                      defaultMode = 0755
+                    }
+                  }
+                ]
+                containers = [{
+                    name = "runner"
+                    image = "etesami/kubectl:latest"
+                    imagePullPolicy = "Always"
+                    command = ["/bin/bash","-lc","/script/cleanup.sh"]
+                    env = [{
+                        name = "CLUSTER_NAME"
+                        value = s
+                      }, {
+                        name = "CHART_REPO"
+                        value = c.repo
+                      }, {
+                        name = "CHART_NAME"
+                        value = c.name
+                      }, {
+                        name = "CHART_VERSION"
+                        value = c.version
+                      },{
+                        name = "CHART_NAMESPACE"
+                        value = c.ns
+                      }, {
+                        name = "KUBECONFIG_B64"
+                        value = kc[s]?["kubeconfig"] or "local"
+                      }, {
+                        # space-separated K8s object references
+                        name = "BLOCKING_OBJECTS"
+                        value = c.blocking_obj or Undefined
+                      }, {
+                        name = "CLUSTERROLE_PREFIX"
+                        value = c.prefix_obj
+                      }, {
+                        name = "OWNER"
+                        value = oxr.metadata.name
+                      }, {
+                        name = "OWNER_PATCH"
+                        value = json.encode({
+                          metadata = {
+                            ownerReferences = [{
+                              apiVersion = "skycluster.io/v1alpha1",
+                              kind = "XKubeMesh",
+                              name = oxr.metadata.name,
+                              uid = oxr.metadata.uid,
+                              controller = True,
+                              blockOwnerDeletion = True
+                            }]
+                          }
+                        })
+                      }, {
+                        name = "SCRIPTS_DIR"
+                        value = "/script"
+                      }
+                    ]
+                    volumeMounts = [{
+                        name = "work"
+                        mountPath = "/work"
+                      }, {
+                        name = "script"
+                        mountPath = "/script"
+                      }
+                    ]
+                  }
+                ]
               }
             }
-            spec = {
-              serviceAccountName = "skycluster-sva"
-              restartPolicy = "Never"
-              volumes = [{
-                  name = "work"
-                  emptyDir = {}
-                }, {
-                  name = "script"
-                  configMap = {
-                    name = "script-kubemesh-setup"
-                    defaultMode = 0755
-                  }
-                }
-              ]
-              containers = [{
-                  name = "runner"
-                  image = "etesami/kubectl:latest"
-                  imagePullPolicy = "Always"
-                  command = ["/bin/bash","-lc","/script/cleanup.sh"]
-                  env = [{
-                      name = "CLUSTER_NAME"
-                      value = s
-                    }, {
-                      name = "CHART_REPO"
-                      value = c.repo
-                    }, {
-                      name = "CHART_NAME"
-                      value = c.name
-                    }, {
-                      name = "CHART_VERSION"
-                      value = c.version
-                    },{
-                      name = "CHART_NAMESPACE"
-                      value = c.ns
-                    }, {
-                      name = "KUBECONFIG_B64"
-                      value = kc[s]?["kubeconfig"] or "local"
-                    }, {
-                      # space-separated K8s object references
-                      name = "BLOCKING_OBJECTS"
-                      value = c.blocking_obj or Undefined
-                    }, {
-                      name = "CLUSTERROLE_PREFIX"
-                      value = c.prefix_obj
-                    }, {
-                      name = "OWNER"
-                      value = oxr.metadata.name
-                    }, {
-                      name = "OWNER_PATCH"
-                      value = json.encode({
-                        metadata = {
-                          ownerReferences = [{
-                            apiVersion = "skycluster.io/v1alpha1",
-                            kind = "XKubeMesh",
-                            name = oxr.metadata.name,
-                            uid = oxr.metadata.uid,
-                            controller = True,
-                            blockOwnerDeletion = True
-                          }]
-                        }
-                      })
-                    }, {
-                      name = "SCRIPTS_DIR"
-                      value = "/script"
-                    }
-                  ]
-                  volumeMounts = [{
-                      name = "work"
-                      mountPath = "/work"
-                    }, {
-                      name = "script"
-                      mountPath = "/script"
-                    }
-                  ]
-                }
-              ]
-            }
-          }
         }
       }
       providerConfigRef = {
