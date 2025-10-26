@@ -61,7 +61,22 @@ spec:
                   }
                 }
                 spec =  {
-                  forProvider.manifest = oxr.spec.manifest
+                  # if changes are made in manifests from upstream, and object controller 
+                  # apply another set of changes in conflict with upstream, then an infinite
+                  # loop may occur. So we try to set a specific fields only.
+                  forProvider.manifest = {
+                    apiVersion = oxr.spec.manifest.apiVersion
+                    kind = oxr.spec.manifest.kind
+                    if oxr.spec.manifest?.metadata?.name:
+                      metadata.name = oxr.spec.manifest.metadata.name
+                    if oxr.spec.manifest?.metadata?.namespace:
+                      metadata.namespace = oxr.spec.manifest.metadata.namespace
+                    if oxr.spec.manifest?.metadata?.labels:
+                      metadata.labels = oxr.spec.manifest.metadata.labels
+                    if oxr.spec.manifest?.metadata?.annotations:
+                      metadata.annotations = oxr.spec.manifest.metadata.annotations
+                    **oxr.spec.manifest?.spec
+                  }
                   providerConfigRef = {
                     name = oxr.spec.providerConfigRef.name
                   }
