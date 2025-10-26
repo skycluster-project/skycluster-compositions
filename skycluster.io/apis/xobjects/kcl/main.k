@@ -52,7 +52,7 @@ _helper_object = lambda {
           metadata.labels = oxr.spec.manifest.metadata.labels
         if oxr.spec.manifest?.metadata?.annotations:
           metadata.annotations = oxr.spec.manifest.metadata.annotations
-        **oxr.spec.manifest?.spec
+        spec = oxr.spec.manifest?.spec
       }
       providerConfigRef = {
         name = oxr.spec.providerConfigRef.name
