@@ -5,7 +5,6 @@ import helper.v1alpha1.main as helper
 import provider_aws.eks.v1beta1 as eksv1beta1
 import provider_aws.eks.v1beta2 as eksv1beta2
 import provider_aws.iam.v1beta1 as iamv1beta1
-import provider_aws.ec2.v1alpha1 as ec2v1alpha1
 import provider_aws.ec2.v1beta1 as ec2v1beta1
 import provider_kubernetes.v1alpha2 as k8sv1a2
 
@@ -284,7 +283,6 @@ _items += [
       }
       annotations = {
         **helper._set_resource_name("secGroupRule{}".format(_i)),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {

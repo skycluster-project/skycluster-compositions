@@ -94,7 +94,7 @@ _items += [
 _items += [ _helper_root_ca(_kubeconfig_B64) ] if _k8sProvCfgName or ocds?["caCerts"] else []
 
 # # We need to observe the secret for headscale connection
-# _items += [_helper_headscale_token()] if helper._ready(ocds?["headscaleServerDeployment"]) or ocds?["headscaleToken"] else []
+_items += [_helper_headscale_token()] if helper._ready(ocds?["headscaleServerDeployment"]) or ocds?["headscaleToken"] else []
 
 
 _hsTokenEnc = ocds?["headscaleToken"]?.Resource?.status?.atProvider?.manifest?.data?["preauth.json"]
