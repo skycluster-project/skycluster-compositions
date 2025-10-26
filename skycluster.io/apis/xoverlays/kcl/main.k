@@ -58,11 +58,9 @@ _items += [
   k8sv1alpha2.Object{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("clusterServiceCidrObj")
       }
     }
@@ -92,11 +90,9 @@ _items += [
   k8sv1alpha2.Object{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("submarinerSecretObj"),
       }
     }
@@ -108,13 +104,9 @@ _items += [
           name = "submariner-connection-secret",
           namespace = _ns,
           labels = {
-            **oxr.metadata?.labels,
             "skycluster.io/managed-by": "skycluster",
             "skycluster.io/config-type": "connection-secret"
           },
-          annotations = {
-            **oxr.metadata?.annotations,
-          }
         }
         type: "Opaque"
         stringData = {
@@ -145,11 +137,10 @@ _items += [
   helmv1beta1.Release{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
+        
         **helper._set_resource_name("submarinerClientCluster")
       }
     }

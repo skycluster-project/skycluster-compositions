@@ -284,11 +284,7 @@ spec:
             _items += [
               k8sv1a2.Object{
                 metadata = {
-                  labels = {
-                    **oxr.metadata?.labels,
-                  }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("eksKubeconfigSecret"),
                   },
                 },
@@ -302,14 +298,10 @@ spec:
                         name = "k8s-eks-{}".format(_oxrName),
                         namespace = _ns,
                         labels = {
-                          **oxr.metadata?.labels,
                           **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                           "skycluster.io/secret-type" = "k8s-connection-data",
                           "skycluster.io/cluster-name" = _oxrName,
                           "skycluster.io/provider-platform" = "aws"
-                        },
-                        annotations = {
-                          **oxr.metadata?.annotations,
                         },
                       },
                       "type" = "Opaque",
@@ -366,11 +358,9 @@ spec:
               ec2v1beta1.SecurityGroupRule{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("secGroupRuleUdp{}-{}-{}".format(_i, port.fromPort, port.toPort)),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
@@ -399,11 +389,9 @@ spec:
               ec2v1beta1.SecurityGroupRule{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("secGroupRule{}".format(_i)),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
@@ -474,11 +462,9 @@ spec:
               eksv1beta2.Cluster {
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name(s),
                   }
                 }
@@ -573,11 +559,9 @@ spec:
               eksv1beta1.Addon{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("eks-pod-identity-agent-addon"),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
@@ -596,11 +580,9 @@ spec:
               eksv1beta1.Addon{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("vpc-cni-addon"),
                   }
                 }
@@ -620,11 +602,9 @@ spec:
               eksv1beta1.Addon{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("aws-ebs-csi-driver-addon"),
                   }
                 }
@@ -644,11 +624,9 @@ spec:
                 # force recreate when principalArn changes
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name(crypto.sha256("apc{}".format(arn))),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
@@ -679,12 +657,10 @@ spec:
                 # force recreate when principalArn changes
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                     "skycluster.io/access-entry" = "standard"
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name(crypto.sha256("accEntry{}".format(arn))),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
@@ -706,12 +682,10 @@ spec:
               iamv1beta1.Role {
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                     "skycluster.io/iam-role" = "controlplane"
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name(s),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
@@ -745,11 +719,9 @@ spec:
                 eksv1beta1.PodIdentityAssociation {
                   metadata = {
                     labels = {
-                      **oxr.metadata?.labels,
                       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                     }
                     annotations = {
-                      **oxr.metadata?.annotations,
                       **helper._set_resource_name("ebsCSIDriverPodIdentityAssociation"),
                     }
                   }
@@ -773,12 +745,10 @@ spec:
                 iamv1beta1.Role {
                   metadata = {
                     labels = {
-                      **oxr.metadata?.labels,
                       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                       role = "ebs-csi-driver"
                     }
                     annotations = {
-                      **oxr.metadata?.annotations,
                       **helper._set_resource_name("ebsCSIDriverRole"),
                       **helper._is_paused_label(oxr.metadata.labels)
                     }
@@ -800,11 +770,9 @@ spec:
               eksv1beta1.ClusterAuth{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name(s),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
@@ -826,11 +794,9 @@ spec:
               ec2v1beta1.LaunchTemplate{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("lnchTemplatePublic"),
                   }
                 }
@@ -848,12 +814,10 @@ spec:
               eksv1beta2.NodeGroup{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                     "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)),
                   }
                 }
@@ -911,12 +875,10 @@ spec:
               ec2v1beta1.Subnet{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
                     "skycluster.io/cluster-name" = _oxrName
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
@@ -946,12 +908,10 @@ spec:
               iamv1beta1.Role{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
                     "skycluster.io/iam-role" = "nodegroup"
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name(s),
                     **helper._is_paused_label(oxr.metadata.labels)
                   }
@@ -990,7 +950,6 @@ spec:
                     "skycluster.io/public-route-table" = "true" if t == "public" else "false",
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("{}-route-table".format("public" if t == "public" else "private")),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
@@ -1017,7 +976,6 @@ spec:
                     "skycluster.io/public-subnet" = "true" if t == "public" else "false",
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
@@ -1053,7 +1011,6 @@ spec:
                     "skycluster.io/public-route-table" = "true" if t == "public" else "false",
                   }
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("{}-route".format("public" if t == "public" else "private")),
                     **helper._is_paused_label(oxr.metadata.labels),
                   }
@@ -1094,10 +1051,8 @@ spec:
                   metadata = {
                     labels = {
                       role = "karpenter"
-                      **oxr.metadata?.labels,
                     }
                     annotations = {
-                      **oxr.metadata?.annotations,
                       **helper._set_resource_name("karpenterInstanceNodeRole"),
                     }
                     generateName = "kp-{}-".format(_id)
@@ -1189,9 +1144,6 @@ spec:
                 eksv1beta1.AccessEntry{
                   metadata = {
                     annotations = { **helper._set_resource_name("karpenterAccessEntry") }
-                    labels = {
-                      **oxr.metadata?.labels
-                    }
                   },
                   spec: _defaults | {
                     forProvider = {
@@ -1217,7 +1169,6 @@ spec:
                 sqsv1beta1.Queue{
                   metadata = {
                     annotations = { **helper._set_resource_name("karpenterSQS") }
-                    labels = { **oxr.metadata?.labels }
                   },
                   spec = {
                     forProvider = {
@@ -1312,7 +1263,6 @@ spec:
                   metadata = {
                     annotations = { **helper._set_resource_name("podIdentityRole") }
                     labels = {
-                      **oxr.metadata?.labels,
                       role = "pod-identity" 
                     }
                   },
@@ -1525,7 +1475,6 @@ spec:
                 eksv1beta1.PodIdentityAssociation{
                   metadata = {
                     annotations = { **helper._set_resource_name("podIdentityAssociation") }
-                    labels = {**oxr.metadata?.labels}
                   },
                   spec = _defaults | {
                     forProvider = {
@@ -1549,11 +1498,9 @@ spec:
               helmv1b1.Release{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     "skycluster.io/managed-by": "skycluster",
                   },
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("karpenterChart"),
                     "crossplane.io/external-name" = "karpenter"
                   }
@@ -1590,10 +1537,7 @@ spec:
                   annotations = {
                     **helper._set_resource_name("karpenterNodeClass{}{}".format("Public" if ng.publicAccess else "Private", i))
                   }
-                  labels = { 
-                    **oxr.metadata?.labels,
-                    "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
-                  }
+                  labels = { "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false" }
                 },
                 spec = {
                   deletionPolicy = "Orphan"
@@ -1642,8 +1586,7 @@ spec:
                   annotations = {
                     **helper._set_resource_name("karpenterNodePool{}{}".format("Public" if ng.publicAccess else "Private", i))
                   }
-                  labels = { 
-                    **oxr.metadata?.labels 
+                  labels = {
                     "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
                   }
                 },

@@ -40,14 +40,10 @@ assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone and _appId, \
 
 
 _default_labels = {
-  **oxr.metadata?.labels,
   **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
 }
 
-_default_annotations = {
-  **oxr.metadata?.annotations,
-  **helper._is_paused_label(oxr.metadata.labels),
-}
+_default_annotations = {}
 
 _extractPrivateKey: (any) -> str = lambda data {
   _decstr = base64.decode(data) or Undefined
@@ -95,11 +91,9 @@ _items += [
     kind = "XInstance"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xinstance")
       }
     }
@@ -135,11 +129,9 @@ _items += [
     kind = "XInstance"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xinstance")
       }
     }
@@ -175,11 +167,9 @@ _items += [
     kind = "XInstance"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xinstance")
       }
     }

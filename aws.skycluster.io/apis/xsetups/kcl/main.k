@@ -1,6 +1,3 @@
-import json
-import base64
-import yaml
 import helper.v1alpha1.main as helper
 import provider_aws.ec2.v1beta1 as ec2v1beta1
 
@@ -136,13 +133,10 @@ _items += [
   ec2v1beta1.Instance{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("gwInstance"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -224,13 +218,10 @@ _helper_eip = lambda {
   ec2v1beta1.EIP {
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("elasticIP"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -256,14 +247,11 @@ _helper_eip = lambda {
 _helper_keypair = lambda s {
   ec2v1beta1.KeyPair{
     metadata = {
-      labels = {
-        **oxr.metadata?.labels 
+      labels = { 
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -282,13 +270,10 @@ _helper_vpc = lambda {
   ec2v1beta1.VPC{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("vpc"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     }
     spec ={
@@ -307,14 +292,11 @@ _helper_subnet = lambda i, s {
   ec2v1beta1.Subnet{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, "", _oxrAppId),
         "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -336,14 +318,11 @@ _helper_network_interface = lambda {
   ec2v1beta1.NetworkInterface{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/interface-id" = "network-interface",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("networkInterface"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -370,13 +349,10 @@ _helper_internet_gw = lambda {
   ec2v1beta1.InternetGateway{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("internet-gateway"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -395,14 +371,11 @@ _helper_route_table = lambda t {
   ec2v1beta1.RouteTable{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/public-route-table" = "true" if t == "public" else "false",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}-route-table".format("public" if t == "public" else "private")),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -421,14 +394,11 @@ _helper_route_table_association = lambda t {
   ec2v1beta1.RouteTableAssociation{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/public-subnet" = "true" if t == "public" else "false",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -459,14 +429,11 @@ _helper_route = lambda t {
   ec2v1beta1.Route{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/public-route-table" = "true" if t == "public" else "false",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}-route".format("public" if t == "public" else "private")),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -500,14 +467,11 @@ _helper_sg = lambda {
   ec2v1beta1.SecurityGroup{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/secgroup-type" = "default",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("security-group"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -515,7 +479,6 @@ _helper_sg = lambda {
         region = _oxrProvRegion,
         vpcIdSelector.matchControllerRef = True
         tags = {
-          **oxr.metadata?.labels,
           **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
           "skycluster.io/secgroup-type" = "default",
         }
@@ -531,13 +494,10 @@ _helper_sg_rule_outbound = lambda {
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("security-group-rule-outbound"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -566,13 +526,10 @@ _helper_sg_rule_inbound_icmp = lambda {
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("security-group-rule-inbound-icmp"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -601,13 +558,10 @@ _helper_sg_rule = lambda port, proto {
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("security-group-rule-inbound-{}-{}-{}".format(proto, port.fromPort, port.toPort)),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -636,13 +590,10 @@ _helper_sg_rule_inbound_internal = lambda {
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("security-group-rule-inbound-self"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {

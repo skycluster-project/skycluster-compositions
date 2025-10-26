@@ -164,12 +164,9 @@ spec:
             _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
             _k8sMgmtClusterName = "k8s-skycluster-management"
 
-            _default_labels = {
-              **oxr.metadata?.labels,
-              "skycluster.io/managed-by" = "skycluster"
-            }
+            _default_labels = { "skycluster.io/managed-by" = "skycluster" }
 
-            _default_annotations = {**oxr.metadata?.annotations}
+            _default_annotations = {}
 
             _clusterNames = oxr.spec?.clusterNames or []
             assert len(_clusterNames) > 0, "At least one cluster name must be provided in the spec.clusters"
@@ -381,9 +378,7 @@ spec:
                     metadata = {
                       name = ns
                       if ns == "skycluster":
-                        labels = {
-                          "istio-injection" = "enabled"
-                        }
+                        labels = {"istio-injection" = "enabled"}
                     }
                   }
                   providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
@@ -638,7 +633,7 @@ spec:
                   }
                   annotations = _default_annotations | \
                     helper._set_resource_name("cleanup-{}-{}".format(c.label, s)) | {
-                      "skycluster.io/creation-time" = "{}".format(datetime.ticks())
+                      "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
                     }
                 }
                 spec =  {
@@ -1355,11 +1350,9 @@ spec:
               helmv1b1.Release{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     "skycluster.io/managed-by": "skycluster",
                   },
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("istio-base-{}".format(s))
                   }
                 }
@@ -1384,11 +1377,9 @@ spec:
               helmv1b1.Release{
                 metadata = {
                   labels = {
-                    **oxr.metadata?.labels,
                     "skycluster.io/managed-by": "skycluster",
                   },
                   annotations = {
-                    **oxr.metadata?.annotations,
                     **helper._set_resource_name("istiod-{}".format(s))
                   }
                 }

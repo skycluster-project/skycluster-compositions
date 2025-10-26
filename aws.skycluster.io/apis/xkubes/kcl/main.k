@@ -175,11 +175,7 @@ _items += [
 _items += [
   k8sv1a2.Object{
     metadata = {
-      labels = {
-        **oxr.metadata?.labels,
-      }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("eksKubeconfigSecret"),
       },
     },
@@ -193,14 +189,10 @@ _items += [
             name = "k8s-eks-{}".format(_oxrName),
             namespace = _ns,
             labels = {
-              **oxr.metadata?.labels,
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "aws"
-            },
-            annotations = {
-              **oxr.metadata?.annotations,
             },
           },
           "type" = "Opaque",
@@ -257,11 +249,9 @@ _items += [
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("secGroupRuleUdp{}-{}-{}".format(_i, port.fromPort, port.toPort)),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -290,11 +280,9 @@ _items += [
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("secGroupRule{}".format(_i)),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -365,11 +353,9 @@ _helper_cluster = lambda s {
   eksv1beta2.Cluster {
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
       }
     }
@@ -464,11 +450,9 @@ _helper_addon_pod_identity = lambda {
   eksv1beta1.Addon{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("eks-pod-identity-agent-addon"),
         **helper._is_paused_label(oxr.metadata.labels)
       }
@@ -487,11 +471,9 @@ _helper_addon_cni = lambda {
   eksv1beta1.Addon{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("vpc-cni-addon"),
       }
     }
@@ -511,11 +493,9 @@ _helper_addon_csi = lambda {
   eksv1beta1.Addon{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("aws-ebs-csi-driver-addon"),
       }
     }
@@ -535,11 +515,9 @@ _helper_access_policy_assoc = lambda arn {
     # force recreate when principalArn changes
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(crypto.sha256("apc{}".format(arn))),
         **helper._is_paused_label(oxr.metadata.labels)
       }
@@ -570,12 +548,10 @@ _helper_access_entry = lambda arn {
     # force recreate when principalArn changes
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/access-entry" = "standard"
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(crypto.sha256("accEntry{}".format(arn))),
         **helper._is_paused_label(oxr.metadata.labels)
       }
@@ -597,12 +573,10 @@ _helper_role = lambda s {
   iamv1beta1.Role {
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/iam-role" = "controlplane"
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
         **helper._is_paused_label(oxr.metadata.labels)
       }
@@ -636,11 +610,9 @@ _helper_ebs_role = lambda {
     eksv1beta1.PodIdentityAssociation {
       metadata = {
         labels = {
-          **oxr.metadata?.labels,
           **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         }
         annotations = {
-          **oxr.metadata?.annotations,
           **helper._set_resource_name("ebsCSIDriverPodIdentityAssociation"),
         }
       }
@@ -664,12 +636,10 @@ _helper_ebs_role = lambda {
     iamv1beta1.Role {
       metadata = {
         labels = {
-          **oxr.metadata?.labels,
           **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
           role = "ebs-csi-driver"
         }
         annotations = {
-          **oxr.metadata?.annotations,
           **helper._set_resource_name("ebsCSIDriverRole"),
           **helper._is_paused_label(oxr.metadata.labels)
         }
@@ -691,11 +661,9 @@ _helper_cluster_auth = lambda s {
   eksv1beta1.ClusterAuth{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
         **helper._is_paused_label(oxr.metadata.labels)
       }
@@ -717,11 +685,9 @@ _helper_launch_template = lambda {
   ec2v1beta1.LaunchTemplate{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("lnchTemplatePublic"),
       }
     }
@@ -739,12 +705,10 @@ _helper_node_group = lambda i, ng, ltName {
   eksv1beta2.NodeGroup{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("nodeGroup{}{}".format("Public" if ng.publicAccess else "Private", i)),
       }
     }
@@ -802,12 +766,10 @@ _helper_subnet = lambda i, s {
   ec2v1beta1.Subnet{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
         "skycluster.io/cluster-name" = _oxrName
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -837,12 +799,10 @@ _helper_role_node_group = lambda s {
   iamv1beta1.Role{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/iam-role" = "nodegroup"
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
         **helper._is_paused_label(oxr.metadata.labels)
       }
@@ -881,7 +841,6 @@ _helper_route_table = lambda t {
         "skycluster.io/public-route-table" = "true" if t == "public" else "false",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}-route-table".format("public" if t == "public" else "private")),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -908,7 +867,6 @@ _helper_route_table_association = lambda t {
         "skycluster.io/public-subnet" = "true" if t == "public" else "false",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -944,7 +902,6 @@ _helper_route = lambda t {
         "skycluster.io/public-route-table" = "true" if t == "public" else "false",
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}-route".format("public" if t == "public" else "private")),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -985,10 +942,8 @@ _helper_karpenter_roles = lambda _id {
       metadata = {
         labels = {
           role = "karpenter"
-          **oxr.metadata?.labels,
         }
         annotations = {
-          **oxr.metadata?.annotations,
           **helper._set_resource_name("karpenterInstanceNodeRole"),
         }
         generateName = "kp-{}-".format(_id)
@@ -1080,9 +1035,6 @@ _helper_karpenter_roles = lambda _id {
     eksv1beta1.AccessEntry{
       metadata = {
         annotations = { **helper._set_resource_name("karpenterAccessEntry") }
-        labels = {
-          **oxr.metadata?.labels
-        }
       },
       spec: _defaults | {
         forProvider = {
@@ -1108,7 +1060,6 @@ _helper_karpenter_sqs_cloudwatch = lambda s {
     sqsv1beta1.Queue{
       metadata = {
         annotations = { **helper._set_resource_name("karpenterSQS") }
-        labels = { **oxr.metadata?.labels }
       },
       spec = {
         forProvider = {
@@ -1203,7 +1154,6 @@ _helper_karpenter_pod_identity = lambda _clusterName, _sqsQueueArn, _instanceNod
       metadata = {
         annotations = { **helper._set_resource_name("podIdentityRole") }
         labels = {
-          **oxr.metadata?.labels,
           role = "pod-identity" 
         }
       },
@@ -1416,7 +1366,6 @@ _helper_karpenter_pod_identity = lambda _clusterName, _sqsQueueArn, _instanceNod
     eksv1beta1.PodIdentityAssociation{
       metadata = {
         annotations = { **helper._set_resource_name("podIdentityAssociation") }
-        labels = {**oxr.metadata?.labels}
       },
       spec = _defaults | {
         forProvider = {
@@ -1440,11 +1389,9 @@ _helper_karpenter_helm = lambda _clusterName, _queueName, helmProvCfgName {
   helmv1b1.Release{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("karpenterChart"),
         "crossplane.io/external-name" = "karpenter"
       }
@@ -1481,10 +1428,7 @@ _helper_karpenter_node_class = lambda i, ng, _instanceProfileName, _k8sProvCfgNa
       annotations = {
         **helper._set_resource_name("karpenterNodeClass{}{}".format("Public" if ng.publicAccess else "Private", i))
       }
-      labels = { 
-        **oxr.metadata?.labels,
-        "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
-      }
+      labels = { "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false" }
     },
     spec = {
       deletionPolicy = "Orphan"
@@ -1533,8 +1477,7 @@ _helper_karpenter_node_pools = lambda i, ng, _k8sProvCfgName {
       annotations = {
         **helper._set_resource_name("karpenterNodePool{}{}".format("Public" if ng.publicAccess else "Private", i))
       }
-      labels = { 
-        **oxr.metadata?.labels 
+      labels = {
         "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
       }
     },

@@ -1,4 +1,3 @@
-import json
 import helper.v1alpha1.main as helper
 import provider_kubernetes.v1alpha2 as k8sv1a2
 
@@ -36,7 +35,6 @@ _helper_object = lambda {
     metadata = {
       labels = oxr.metadata.labels
       annotations = {
-        **oxr.metadata.annotations,
         **helper._set_resource_name("object")
       }
     }

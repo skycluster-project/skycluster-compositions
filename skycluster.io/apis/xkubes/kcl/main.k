@@ -54,11 +54,9 @@ _items += [{
   kind = "XKube"
   metadata = {
     labels = {
-      **oxr.metadata?.labels,
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("xk8s")
     }
   }
@@ -102,11 +100,9 @@ _items += [{
   kind = "XKube"
   metadata = {
     labels = {
-      **oxr.metadata?.labels,
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("xk8s")
     }
   }
@@ -168,11 +164,9 @@ _items += [{
   kind = "XKube"
   metadata = {
     labels = {
-      **oxr.metadata?.labels,
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("xk8s")
     }
   }
@@ -227,11 +221,9 @@ _items += [{
   kind = "XKube"
   metadata = {
     labels = {
-      **oxr.metadata?.labels,
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, ""),
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("xk8s")
     }
   }

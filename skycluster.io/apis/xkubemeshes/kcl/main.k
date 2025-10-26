@@ -92,12 +92,9 @@ assert oxr.spec?.localCluster?.serviceCidr, "Service CIDR must be provided in th
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
 _k8sMgmtClusterName = "k8s-skycluster-management"
 
-_default_labels = {
-  **oxr.metadata?.labels,
-  "skycluster.io/managed-by" = "skycluster"
-}
+_default_labels = { "skycluster.io/managed-by" = "skycluster" }
 
-_default_annotations = {**oxr.metadata?.annotations}
+_default_annotations = {}
 
 _clusterNames = oxr.spec?.clusterNames or []
 assert len(_clusterNames) > 0, "At least one cluster name must be provided in the spec.clusters"
@@ -309,9 +306,7 @@ _items += [
         metadata = {
           name = ns
           if ns == "skycluster":
-            labels = {
-              "istio-injection" = "enabled"
-            }
+            labels = {"istio-injection" = "enabled"}
         }
       }
       providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
@@ -566,7 +561,7 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
       }
       annotations = _default_annotations | \
         helper._set_resource_name("cleanup-{}-{}".format(c.label, s)) | {
-          "skycluster.io/creation-time" = "{}".format(datetime.ticks())
+          "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
         }
     }
     spec =  {
@@ -1283,11 +1278,9 @@ _helper_istio_base = lambda s, ch {
   helmv1b1.Release{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("istio-base-{}".format(s))
       }
     }
@@ -1312,11 +1305,9 @@ _helper_istio_operator = lambda s, ch {
   helmv1b1.Release{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("istiod-{}".format(s))
       }
     }

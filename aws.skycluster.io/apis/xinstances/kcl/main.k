@@ -37,12 +37,10 @@ _items = []
 _items += [ec2v1beta1.SecurityGroup{
   metadata = {
     labels = {
-      **oxr.metadata?.labels
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       "skycluster.io/composite-name" = _oxrName,
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("securityGroup"),
       **helper._is_paused_label(oxr.metadata.labels),
     }
@@ -73,12 +71,10 @@ secGrpRulesInbound = [
   ec2v1beta1.SecurityGroupRule{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("securityGroupRuleInbound-{0}-{1}".format(port.fromPort, port.toPort)),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -107,13 +103,11 @@ _items += secGrpRulesInbound
 
 _items += [ec2v1beta1.KeyPair{
   metadata = {
-    labels = {
-      **oxr.metadata?.labels 
+    labels = { 
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId) 
       "skycluster.io/composite-name" = _oxrName,
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("keypair"),
       **helper._is_paused_label(oxr.metadata.labels),
     }
@@ -133,12 +127,10 @@ _items += [ec2v1beta1.KeyPair{
 _items += [ec2v1beta1.NetworkInterface{
   metadata = {
     labels = {
-      **oxr.metadata?.labels
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
       "skycluster.io/composite-name" = _oxrName,
     }
     annotations = {
-      **oxr.metadata?.annotations,
       **helper._set_resource_name("networkInterface"),
       **helper._is_paused_label(oxr.metadata.labels),
     }
@@ -167,12 +159,10 @@ _items += [
   ec2v1beta1.EIP {
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("elasticIP"),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -203,12 +193,10 @@ _items += [
   ec2v1beta1.Instance{
     metadata = {
       labels = {
-        **oxr.metadata?.labels
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("instance"),
         **helper._is_paused_label(oxr.metadata.labels),
       }

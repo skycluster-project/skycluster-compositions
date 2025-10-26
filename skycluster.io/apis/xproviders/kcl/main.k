@@ -65,11 +65,9 @@ _items += [
     kind = "XSetup"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xsetup")
       }
     }
@@ -102,11 +100,9 @@ _items += [
     kind = "XSetup"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xsetup")
       }
     }
@@ -140,11 +136,9 @@ _items += [
     kind = "XSetup"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xsetup")
       }
     }
@@ -180,11 +174,9 @@ _items += [
     kind = "XSetup"
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("xsetup")
       }
     }

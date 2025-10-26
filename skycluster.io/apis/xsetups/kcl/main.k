@@ -36,12 +36,12 @@ _apiServer = oxr.spec?.apiServer or Undefined
 assert _apiServer is not Undefined, "Broker public IP and port must be provided"
 
 _default_labels = {
-  **oxr.metadata?.labels,
+  # **oxr.metadata?.labels,
   "skycluster.io/managed-by" = "skycluster"
 }
 
 _default_annotations = {
-  **oxr.metadata?.annotations,
+  # **oxr.metadata?.annotations,
 }
 
 # Helm Provider Config
@@ -128,9 +128,7 @@ _items += [
     apiVersion = "skycluster.io/v1alpha1"
     kind = "XOverlay"
     metadata = {
-      labels = _default_labels
       annotations = {
-        **_default_annotations
         **helper._set_resource_name("xoverlay"),
       }
     }
@@ -449,9 +447,6 @@ dxr = [{
       certificate = _ca
     }
   }
-  # status.log = json.encode({
-  #   extraRes = extra
-  # })
 }] 
 
 extraItems = [{
