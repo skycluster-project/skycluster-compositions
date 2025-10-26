@@ -460,7 +460,7 @@ _items += [
 #   If the secret exists, it will be reused.
 #
 _items += [
-  _helper_remote_secret_pod(s) for s in _clusterNamesRef \
+  _helper_remote_secret(s) for s in _clusterNamesRef \
     if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
       ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
       _k8sProvCfgName
@@ -550,19 +550,19 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
   k8sv1a2.Object{
     metadata = {
       labels = {
-        "skycluster.io/pod-type": "cleanup",
+        "skycluster.io/pod-type": "cleanup-pod",
         "skycluster.io/cluster-name": "{}".format(s)
       }
-      annotations = helper._set_resource_name("cleanup-{}-{}".format(c.label, s)) | {
+      annotations = helper._set_resource_name("cl-{}-{}".format(c.label, s)) | {
         "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
       }
     }
     spec =  {
       forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Pod"
+        apiVersion = "batch/v1"
+        kind = "Job"
         metadata = { 
-          name = "cleanup-{}-{}".format(c.label, s),
+          name = "cl-{}-{}".format(c.label, s),
           namespace = "skycluster-system",
           labels = {
             "skycluster.io/pod-type": "cleanup-pod",
@@ -570,81 +570,93 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
           },
         }
         spec = {
-          serviceAccountName = "skycluster-sva"
-          restartPolicy = "Never"
-          volumes = [{
-              name = "work"
-              emptyDir = {}
-            }, {
-              name = "script"
-              configMap = {
-                name = "script-kubemesh-setup"
-                defaultMode = 0755
+          completions = 1
+          backoffLimit = 0
+          template = {
+            metadata = {
+              labels = {
+                "skycluster.io/pod-type": "cleanup-pod",
+                "skycluster.io/cluster-name": s
               }
             }
-          ]
-          containers = [{
-              name = "runner"
-              image = "etesami/kubectl:latest"
-              imagePullPolicy = "Always"
-              command = ["/bin/bash","-lc","/script/cleanup.sh"]
-              env = [{
-                  name = "CLUSTER_NAME"
-                  value = s
-                }, {
-                  name = "CHART_REPO"
-                  value = c.repo
-                }, {
-                  name = "CHART_NAME"
-                  value = c.name
-                }, {
-                  name = "CHART_VERSION"
-                  value = c.version
-                },{
-                  name = "CHART_NAMESPACE"
-                  value = c.ns
-                }, {
-                  name = "KUBECONFIG_B64"
-                  value = kc[s]?["kubeconfig"] or "local"
-                }, {
-                  # space-separated K8s object references
-                  name = "BLOCKING_OBJECTS"
-                  value = c.blocking_obj or Undefined
-                }, {
-                  name = "CLUSTERROLE_PREFIX"
-                  value = c.prefix_obj
-                }, {
-                  name = "OWNER"
-                  value = oxr.metadata.name
-                }, {
-                  name = "OWNER_PATCH"
-                  value = json.encode({
-                    metadata = {
-                      ownerReferences = [{
-                        apiVersion = "skycluster.io/v1alpha1",
-                        kind = "XKubeMesh",
-                        name = oxr.metadata.name,
-                        uid = oxr.metadata.uid,
-                        controller = True,
-                        blockOwnerDeletion = True
-                      }]
-                    }
-                  })
-                }, {
-                  name = "SCRIPTS_DIR"
-                  value = "/script"
-                }
-              ]
-              volumeMounts = [{
+            spec = {
+              serviceAccountName = "skycluster-sva"
+              restartPolicy = "Never"
+              volumes = [{
                   name = "work"
-                  mountPath = "/work"
+                  emptyDir = {}
                 }, {
                   name = "script"
-                  mountPath = "/script"
+                  configMap = {
+                    name = "script-kubemesh-setup"
+                    defaultMode = 0755
+                  }
+                }
+              ]
+              containers = [{
+                  name = "runner"
+                  image = "etesami/kubectl:latest"
+                  imagePullPolicy = "Always"
+                  command = ["/bin/bash","-lc","/script/cleanup.sh"]
+                  env = [{
+                      name = "CLUSTER_NAME"
+                      value = s
+                    }, {
+                      name = "CHART_REPO"
+                      value = c.repo
+                    }, {
+                      name = "CHART_NAME"
+                      value = c.name
+                    }, {
+                      name = "CHART_VERSION"
+                      value = c.version
+                    },{
+                      name = "CHART_NAMESPACE"
+                      value = c.ns
+                    }, {
+                      name = "KUBECONFIG_B64"
+                      value = kc[s]?["kubeconfig"] or "local"
+                    }, {
+                      # space-separated K8s object references
+                      name = "BLOCKING_OBJECTS"
+                      value = c.blocking_obj or Undefined
+                    }, {
+                      name = "CLUSTERROLE_PREFIX"
+                      value = c.prefix_obj
+                    }, {
+                      name = "OWNER"
+                      value = oxr.metadata.name
+                    }, {
+                      name = "OWNER_PATCH"
+                      value = json.encode({
+                        metadata = {
+                          ownerReferences = [{
+                            apiVersion = "skycluster.io/v1alpha1",
+                            kind = "XKubeMesh",
+                            name = oxr.metadata.name,
+                            uid = oxr.metadata.uid,
+                            controller = True,
+                            blockOwnerDeletion = True
+                          }]
+                        }
+                      })
+                    }, {
+                      name = "SCRIPTS_DIR"
+                      value = "/script"
+                    }
+                  ]
+                  volumeMounts = [{
+                      name = "work"
+                      mountPath = "/work"
+                    }, {
+                      name = "script"
+                      mountPath = "/script"
+                    }
+                  ]
                 }
               ]
             }
-          ]
+          }
         }
       }
       providerConfigRef = {
@@ -658,14 +670,14 @@ _helper_dummy_pod_svc_cidr = lambda s {
   k8sv1a2.Object{
     metadata = {
       labels = {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = helper._set_resource_name("dummy-svc-cidr-{}".format(s))
+      annotations = helper._set_resource_name("d-svc-cidr-{}".format(s))
     }
     spec =  {
       forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Pod"
+        apiVersion = "apps/v1"
+        kind = "Deployment"
         metadata = { 
-          name = "dummy-pod-svc-cidr-{}".format(s),
+          name = "d-svc-cidr-{}".format(s),
           namespace = "kube-system",
           labels = {
             "component": "kube-apiserver"
@@ -673,13 +685,29 @@ _helper_dummy_pod_svc_cidr = lambda s {
           },
         }
         spec = {
-          restartPolicy = "Always"
-          containers = [{
-            name = "dummy-container"
-            image = "busybox"
-            command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
-            args = ["--service-cluster-ip-range={}".format(_xkubesRefData[s]?.serviceCidr)]  
-          }]
+          replicas = 1
+          selector = {
+            matchLabels = {
+              "component": "kube-apiserver"
+              "skycluster.io/pod-type": "dummy-pod"
+            }
+          }
+          template = {
+            metadata = {
+              labels = {
+                "component": "kube-apiserver"
+                "skycluster.io/pod-type": "dummy-pod"
+              }
+            }
+            spec = {
+              containers = [{
+                name = "dummy-container"
+                image = "busybox"
+                command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
+                args = ["--service-cluster-ip-range={}".format(_xkubesRefData[s]?.serviceCidr)]  
+              }]
+            }
+          }
         }
       }
       providerConfigRef = {
@@ -694,14 +722,14 @@ _helper_dummy_pod_cluster_cidr = lambda s {
   k8sv1a2.Object{
     metadata = {
       labels = {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = helper._set_resource_name("dummy-cluster-cidr-{}".format(s))
+      annotations = helper._set_resource_name("d-cidr-{}".format(s))
     }
     spec =  {
       forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Pod"
+        apiVersion = "apps/v1"
+        kind = "Deployment"
         metadata = { 
-          name = "dummy-pod-cluster-cidr-{}".format(s),
+          name = "d-cidr-{}".format(s),
           namespace = "kube-system",
           labels = {
             "component": "kube-controller-manager"
@@ -709,13 +737,29 @@ _helper_dummy_pod_cluster_cidr = lambda s {
           },
         }
         spec = {
-          restartPolicy = "Always"
-          containers = [{
-            name = "dummy-container"
-            image = "busybox"
-            command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
-            args = ["--cluster-cidr={}".format(_xkubesRefData[s]?.podCidr)]  
-          }]
+          replicas = 1
+          selector = {
+            matchLabels = {
+              "component": "kube-controller-manager"
+              "skycluster.io/pod-type": "dummy-pod"
+            }
+          }
+          template = {
+            metadata = {
+              labels = {
+                "component": "kube-controller-manager"
+                "skycluster.io/pod-type": "dummy-pod"
+              }
+            }
+            spec = {
+              containers = [{
+                name = "dummy-container"
+                image = "busybox"
+                command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
+                args = ["--cluster-cidr={}".format(_xkubesRefData[s]?.podCidr)]
+              }]
+            }
+          }
         }
       }
       providerConfigRef = {
@@ -729,28 +773,28 @@ _helper_dummy_pod_cluster_cidr = lambda s {
 _helper_rp_filter_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = {"skycluster.io/pod-type": "rp-filter-daemon"}
-      annotations = helper._set_resource_name("rp-filter-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "rp-filter"}
+      annotations = helper._set_resource_name("rp-filter-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
         apiVersion = "apps/v1"
         kind = "DaemonSet"
         metadata = {
-          name = "rp-filter-daemon-{}".format(s),
+          name = "rp-filter-{}".format(s),
           namespace = "kube-system",
           labels = {
             "component": "kube-apiserver"
-            "skycluster.io/pod-type": "rp-filter-daemon"
+            "skycluster.io/pod-type": "rp-filter"
           },
         }
         spec = {
           selector.matchLabels = {
-            "name": "rp-filter-daemon-{}".format(s)
+            "name": "rp-filter-{}".format(s)
           }
           template = {
             metadata.labels = {
-              "name": "rp-filter-daemon-{}".format(s)
+              "name": "rp-filter-{}".format(s)
             }
             spec = {
               hostNetwork = True
@@ -799,27 +843,27 @@ _helper_rp_filter_daemonset = lambda s {
 _helper_sync_routes_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = {"skycluster.io/pod-type": "sync-routes-daemon"}
-      annotations = helper._set_resource_name("sync-routes-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "sync-routes"}
+      annotations = helper._set_resource_name("sync-routes-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
         apiVersion = "apps/v1"
         kind = "DaemonSet"
         metadata = {
-          name = "sync-routes-daemon-{}".format(s),
+          name = "sync-routes-{}".format(s),
           namespace = "kube-system",
           labels = {
-            "skycluster.io/pod-type": "sync-routes-daemon"
+            "skycluster.io/pod-type": "sync-routes"
           },
         }
         spec = {
           selector.matchLabels = {
-            "name": "sync-routes-daemon-{}".format(s)
+            "name": "sync-routes-{}".format(s)
           }
           template = {
             metadata.labels = {
-              "name": "sync-routes-daemon-{}".format(s)
+              "name": "sync-routes-{}".format(s)
             }
             spec = {
               hostNetwork = True
@@ -868,27 +912,27 @@ _helper_sync_routes_daemonset = lambda s {
 _helper_src_dst_check_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = {"skycluster.io/pod-type": "src-dst-check-daemon"}
-      annotations = helper._set_resource_name("src-dst-check-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "src-dst-check"}
+      annotations = helper._set_resource_name("src-dst-check-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
         apiVersion = "apps/v1"
         kind = "DaemonSet"
         metadata = {
-          name = "src-dst-check-daemon-{}".format(s),
+          name = "src-dst-check-{}".format(s),
           namespace = "kube-system",
           labels = {
-            "skycluster.io/pod-type": "src-dst-check-daemon"
+            "skycluster.io/pod-type": "src-dst-check"
           },
         }
         spec = {
           selector.matchLabels = {
-            "name": "src-dst-check-daemon-{}".format(s)
+            "name": "src-dst-check-{}".format(s)
           }
           template = {
             metadata.labels = {
-              "name": "src-dst-check-daemon-{}".format(s)
+              "name": "src-dst-check-{}".format(s)
             }
             spec = {
               hostNetwork = True
@@ -942,29 +986,29 @@ _helper_src_dst_check_daemonset = lambda s {
 _helper_route_replicator_daemonset = lambda s {
   k8sv1a2.Object{
     metadata = {
-      labels = {"skycluster.io/pod-type": "route-replicator-daemon"}
-      annotations = helper._set_resource_name("route-replicator-daemon-{}".format(s))
+      labels = {"skycluster.io/pod-type": "route-replicator"}
+      annotations = helper._set_resource_name("route-replicator-{}".format(s))
     }
     spec = {
       forProvider.manifest = {
         apiVersion = "apps/v1"
         kind = "DaemonSet"
         metadata = {
-          name = "route-replicator-daemon-{}".format(s),
+          name = "route-replicator-{}".format(s),
           namespace = "kube-system",
           labels = {
             "component": "route-replicator"
-            "skycluster.io/pod-type": "route-replicator-daemon"
+            "skycluster.io/pod-type": "route-replicator"
             "role": "route-replicator"
           },
         }
         spec = {
           selector.matchLabels = {
-            "name": "route-replicator-daemon-{}".format(s)
+            "name": "route-replicator-{}".format(s)
           }
           template = {
             metadata.labels = {
-              "name": "route-replicator-daemon-{}".format(s)
+              "name": "route-replicator-{}".format(s)
               "role": "route-replicator"
             }
             spec = {
@@ -997,7 +1041,7 @@ _helper_route_replicator_daemonset = lambda s {
   }
 }
 
-_helper_remote_secret_pod = lambda s {
+_helper_remote_secret = lambda s {
   k8sv1a2.Object{
     metadata = {
       labels = {"skycluster.io/pod-type": "istio-remote-secret"}
@@ -1005,70 +1049,81 @@ _helper_remote_secret_pod = lambda s {
     }
     spec =  {
       forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Pod"
+        apiVersion = "batch/v1"
+        kind = "Job"
         metadata = { 
           name = "istio-remote-secret-{}".format(s),
           namespace = "skycluster-system",
           labels =  {"skycluster.io/pod-type": "istio-remote-secret"},
         }
         spec = {
-          serviceAccountName: "skycluster-sva"
-          restartPolicy = "Never"
-          volumes = [{
-              name = "work"
-              emptyDir = {}
-            }, {
-              name = "script"
-              configMap = {
-                name = "script-kubemesh-setup"
-                defaultMode = 0755
+          completions = 1
+          backoffLimit = 0
+          template = {
+            metadata = {
+              labels = {
+                "name": "istio-remote-secret-{}".format(s)
               }
             }
-          ]
-          containers = [{
-              name = "runner"
-              image = "etesami/kubectl:latest"
-              imagePullPolicy = "IfNotPresent"
-              command = ["/bin/bash","-lc","/script/istio-remote-secret.sh"]
-              env = [{
-                  name = "NAMESPACE"
-                  value = "skycluster-system"
-                }, {
-                  name = "CLUSTER_NAME"
-                  value = "{}".format(s)
-                }, {
-                  name = "OWNER"
-                  value = oxr.metadata.name
-                }, {
-                  name = "SCRIPTS_DIR"
-                  value = "/script"
-                }, {
-                  name = "OWNER_PATCH"
-                  value = json.encode({
-                    metadata = {
-                      ownerReferences = [{
-                        apiVersion = "skycluster.io/v1alpha1",
-                        kind = "XKubeMesh",
-                        name = oxr.metadata.name,
-                        uid = oxr.metadata.uid,
-                        controller = True,
-                        blockOwnerDeletion = True
-                      }]
-                    }
-                  })
-                }
-              ]
-              volumeMounts = [{
+            spec = {
+              serviceAccountName: "skycluster-sva"
+              restartPolicy = "Never"
+              volumes = [{
                   name = "work"
-                  mountPath = "/work"
+                  emptyDir = {}
                 }, {
                   name = "script"
-                  mountPath = "/script"
+                  configMap = {
+                    name = "script-kubemesh-setup"
+                    defaultMode = 0755
+                  }
+                }
+              ]
+              containers = [{
+                  name = "runner"
+                  image = "etesami/kubectl:latest"
+                  imagePullPolicy = "IfNotPresent"
+                  command = ["/bin/bash","-lc","/script/istio-remote-secret.sh"]
+                  env = [{
+                      name = "NAMESPACE"
+                      value = "skycluster-system"
+                    }, {
+                      name = "CLUSTER_NAME"
+                      value = "{}".format(s)
+                    }, {
+                      name = "OWNER"
+                      value = oxr.metadata.name
+                    }, {
+                      name = "SCRIPTS_DIR"
+                      value = "/script"
+                    }, {
+                      name = "OWNER_PATCH"
+                      value = json.encode({
+                        metadata = {
+                          ownerReferences = [{
+                            apiVersion = "skycluster.io/v1alpha1",
+                            kind = "XKubeMesh",
+                            name = oxr.metadata.name,
+                            uid = oxr.metadata.uid,
+                            controller = True,
+                            blockOwnerDeletion = True
+                          }]
+                        }
+                      })
+                    }
+                  ]
+                  volumeMounts = [{
+                      name = "work"
+                      mountPath = "/work"
+                    }, {
+                      name = "script"
+                      mountPath = "/script"
+                    }
+                  ]
                 }
               ]
             }
-          ]
+          }
         }
       }
       providerConfigRef = {
@@ -1086,77 +1141,93 @@ _helper_cacerts_pod = lambda s {
     }
     spec =  {
       forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Pod"
+        apiVersion = "batch/v1"
+        kind = "Job"
         metadata = { 
           name = "istio-cacert-{}".format(s),
           namespace = "skycluster-system",
           labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"},
         }
         spec = {
-          serviceAccountName: "skycluster-sva"
-          restartPolicy = "Never"
-          volumes = [{
-              name = "work"
-              emptyDir = {}
-            }, {
-              name = "script"
-              configMap = {
-                name = "script-kubemesh-setup"
-                defaultMode = 0755
+          completions = 1
+          backoffLimit = 0
+          template = {
+            metadata = {
+              labels = {
+                "name": "istio-cacert-{}".format(s)
               }
             }
-          ]
-          containers = [{
-              name = "runner"
-              image = "etesami/kubectl:latest"
-              imagePullPolicy = "IfNotPresent"
-              command = ["/bin/bash","-lc","/script/istio-cluster-cacerts.sh"]
-              env = [{
-                  name = "NAMESPACE"
-                  value = "skycluster-system"
-                }, {
-                  name = "ROOT_SECRET_NAME"
-                  value = "istio-root-ca"
-                }, {
-                  name = "KCFG_SELECTOR"
-                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
-                }, {
-                  name = "OWNER"
-                  value = oxr.metadata.name
-                }, {
-                  name = "SCRIPTS_DIR"
-                  value = "/script"
-                }, {
-                  name = "OWNER_PATCH"
-                  value = json.encode({
-                    metadata = {
-                      ownerReferences = [{
-                        apiVersion = "skycluster.io/v1alpha1",
-                        kind = "XKubeMesh",
-                        name = oxr.metadata.name,
-                        uid = oxr.metadata.uid,
-                        controller = True,
-                        blockOwnerDeletion = True
-                      }]
-                    }
-                  })
-                }
-              ]
-              volumeMounts = [{
+            spec = {
+              serviceAccountName: "skycluster-sva"
+              restartPolicy = "Never"
+              volumes = [{
                   name = "work"
-                  mountPath = "/work"
+                  emptyDir = {}
                 }, {
                   name = "script"
-                  mountPath = "/script"
+                  configMap = {
+                    name = "script-kubemesh-setup"
+                    defaultMode = 0755
+                  }
+                }
+              ]
+              containers = [{
+                  name = "runner"
+                  image = "etesami/kubectl:latest"
+                  imagePullPolicy = "IfNotPresent"
+                  command = ["/bin/bash","-lc","/script/istio-cluster-cacerts.sh"]
+                  env = [{
+                      name = "NAMESPACE"
+                      value = "skycluster-system"
+                    }, {
+                      name = "ROOT_SECRET_NAME"
+                      value = "istio-root-ca"
+                    }, {
+                      name = "KCFG_SELECTOR"
+                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
+                    }, {
+                      name = "OWNER"
+                      value = oxr.metadata.name
+                    }, {
+                      name = "SCRIPTS_DIR"
+                      value = "/script"
+                    }, {
+                      name = "OWNER_PATCH"
+                      value = json.encode({
+                        metadata = {
+                          ownerReferences = [{
+                            apiVersion = "skycluster.io/v1alpha1",
+                            kind = "XKubeMesh",
+                            name = oxr.metadata.name,
+                            uid = oxr.metadata.uid,
+                            controller = True,
+                            blockOwnerDeletion = True
+                          }]
+                        }
+                      })
+                    }
+                  ]
+                  volumeMounts = [{
+                      name = "work"
+                      mountPath = "/work"
+                    }, {
+                      name = "script"
+                      mountPath = "/script"
+                    }
+                  ]
                 }
               ]
             }
-          ]
+          }
+          
         }
       }
       providerConfigRef = {
         name = _k8sProvCfgName
+      }
+      readiness = {
+        policy = "DeriveFromCelQuery"
+        celQuery = "object.status.succeeded == 1"
       }
     }
   }
