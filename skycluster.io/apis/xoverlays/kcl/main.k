@@ -140,7 +140,6 @@ _items += [
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        
         **helper._set_resource_name("submarinerClientCluster")
       }
     }
