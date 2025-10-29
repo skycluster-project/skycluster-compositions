@@ -180,9 +180,10 @@ _tcpPorts = oxr.spec.tcpPorts
 _udpPorts = oxr.spec.udpPorts
 
 _tcpPortDefaults = [
-  {"fromPort" = 30000, "toPort" = 30050},
+  # {"fromPort" = 30000, "toPort" = 30050},
   # TODO: this is a very large range for ephemeral ports
   # check if any ports needed here
+  {"fromPort" = 30000, "toPort" = 60999}
   # {"fromPort" = 30000, "toPort" = 32767},
   # {"fromPort" = 32768, "toPort" = 60999}, 
 ]
@@ -221,10 +222,16 @@ _items += [gcpv1beta1.Firewall{
   spec = {
     forProvider = {
       allow = [
-        *[{
-          protocol = p.protocol
-          ports = [str(ss) for pp in p.ports for ss in range(int(pp.fromPort), int(pp.toPort) + 1)],
-        } for p in _openPorts], 
+        *[
+          {
+            protocol = p.protocol
+            ports = [
+                "{}-{}".format(pp.fromPort, pp.toPort) for pp in p.ports if pp.fromPort != pp.toPort
+              ] + [
+                "{}".format(pp.fromPort) for pp in p.ports if pp.fromPort == pp.toPort
+              ],
+          } for p in _openPorts
+        ], 
         {"protocol" = "icmp"},
       ]
       networkSelector.matchControllerRef = True,
