@@ -243,7 +243,8 @@ spec:
             ]
             _tcpPortDefaults = _tcpPortDefaults + [
               {"fromPort" = port, "toPort" = port} 
-                for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250]
+                for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250 10901 10902]
+                # 10901 10902 for thanos query
             ]
             _tcpPortsToUse = _tcpPorts if _tcpPorts else _tcpPortDefaults
             _openPorts = [{
