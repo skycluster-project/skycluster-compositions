@@ -301,13 +301,14 @@ _items += [
         kind = "Namespace"
         metadata = {
           name = ns
-          if ns == "skycluster":
-            labels = {"istio-injection" = "enabled"}
+          # TODO: Why do we need skycluster namespace?
+          # if ns == "skycluster":
+          #   labels = {"istio-injection" = "enabled"}
         }
       }
       providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
     }
-  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator", "skycluster"] \
+  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator"] \
       if _cleanupIstioReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
 ]
 

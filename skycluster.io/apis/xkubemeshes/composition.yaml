@@ -373,13 +373,14 @@ spec:
                     kind = "Namespace"
                     metadata = {
                       name = ns
-                      if ns == "skycluster":
-                        labels = {"istio-injection" = "enabled"}
+                      # TODO: Why do we need skycluster namespace?
+                      # if ns == "skycluster":
+                      #   labels = {"istio-injection" = "enabled"}
                     }
                   }
                   providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
                 }
-              } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator", "skycluster"] \
+              } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator"] \
                   if _cleanupIstioReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
             ]
 
@@ -645,6 +646,7 @@ spec:
                       completions = 1
                       backoffLimit = 0
                       if ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template:
+                        # reuse existing template if exists, for some reason, pod template spec ends up being modified
                         template = ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template
                       else:
                         template = {
