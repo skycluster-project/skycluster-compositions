@@ -112,7 +112,7 @@ spec:
             _publicKey = _skySetup.status?.keypair?.publicKey or Undefined
             assert _publicKey, "Public key must be specified in the SkySetup status"
 
-            _scripts = ["ca-certificate", "ip-forwarding", "networkd-dispatcher", "tailscale", "iptables-postrouting"]
+            _scripts = ["ca-certificate", "ip-forwarding", "networkd-dispatcher", "tailscale", "iptables-postrouting", "node-exporter"]
             _userData = helper._select_init_scripts(_initScripts, _scripts) or Undefined
 
             # Replace the SkyCluster CA certificate
