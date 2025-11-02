@@ -49,6 +49,7 @@ spec:
       secondary: us-west-2b
 status:
   log: "Provider instance created successfully."
+  providerName: "example-provider"
   gateway:
     publicIp: "192.168.1.1"
     privateIp: "10.10.0.1"

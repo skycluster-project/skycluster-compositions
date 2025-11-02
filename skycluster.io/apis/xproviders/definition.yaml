@@ -70,6 +70,8 @@ spec:
                       type: string
                   type: object
                 type: array
+              providerName:
+                type: string
               vpcCidr:
                 type: string
               workerDeviceNames:
@@ -88,6 +90,8 @@ spec:
                     type: string
                 type: object
               log:
+                type: string
+              providerName:
                 type: string
               subnets:
                 items:
