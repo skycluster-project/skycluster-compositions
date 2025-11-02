@@ -91,7 +91,7 @@ spec:
                 type: object
               log:
                 type: string
-              providerName:
+              providerProfileName:
                 type: string
               subnets:
                 items:

@@ -209,7 +209,7 @@ dxr = [{
     } if _publicIp or _privateIp else Undefined
     vpcCidr = _vpcCidr
     if _provSettings.metadata?.labels?["skycluster.io/provider-profile"]:
-      providerName = _provSettings.metadata?.labels?["skycluster.io/provider-profile"]
+      providerProfileName = _provSettings.metadata?.labels?["skycluster.io/provider-profile"]
   }
 }]
 

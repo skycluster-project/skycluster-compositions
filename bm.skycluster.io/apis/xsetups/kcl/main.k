@@ -10,15 +10,6 @@ extra = option("params")?.extraResources
 # _dxr = option("params").dxr # desired composite resource
 # dcds = option("params").dcds # desired composed resources
 
-_default_labels = {
-  **oxr.metadata?.labels,
-  "skycluster.io/managed-by" = "skycluster"
-}
-_default_annotations = {**oxr.metadata?.annotations}
-
-assert oxr.metadata?.labels is not Undefined, "At least one label must be specified"
-assert "skycluster.io/managed-by" in oxr.metadata.labels, "Label 'skycluster.io/managed-by' must be specified"
-
 ctx = option("params")?.ctx
 assert ctx is not Undefined, "Context must be provided in the params"
 
@@ -268,8 +259,7 @@ items = [*_items, dxr, extraItems]
 _helper_secret_remote = lambda s, ip, user, pvKey {
   k8sv1a2.Object{
     "metadata": {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name(s),
       },
     },
@@ -280,9 +270,7 @@ _helper_secret_remote = lambda s, ip, user, pvKey {
           kind: "Secret",
           metadata: {
             name: "ssh-bm-{}-{}".format(_oxrProvRegion.lower(), ip),
-            namespace: _ns,
-            labels: _default_labels,
-            annotations: _default_annotations,
+            namespace: _ns
           },
           type = "Opaque",
           stringData = {
@@ -305,8 +293,7 @@ _helper_secret_remote = lambda s, ip, user, pvKey {
 _helper_provider_cfg = lambda s, ip, sshSecName {
   k8sv1a2.Object{
     "metadata" = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name(s),
       },
     },
@@ -330,8 +317,6 @@ _helper_provider_cfg = lambda s, ip, sshSecName {
           metadata = {
             name = "ssh-bm-{}-{}".format(_oxrProvRegion.lower(), ip),
             namespace = _ns,
-            labels = _default_labels,
-            annotations = _default_annotations,
           },
           spec = {
             credentials = {
@@ -353,8 +338,7 @@ _helper_ssh_task = lambda s, pvCfgName, pbScript, ensScript {
     apiVersion = "ssh.crossplane.io/v1alpha1"
     kind = "SSHTask"
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name(s),
       },
     },
