@@ -1,5 +1,4 @@
 import yaml
-import json
 import base64
 import helper.v1alpha1.main as helper
 import provider_kubernetes.v1alpha2 as k8sv1a2
@@ -7,12 +6,6 @@ import provider_kubernetes.v1alpha2 as k8sv1a2
 oxr = option("params").oxr # observed composite resource
 ocds = option("params")?.ocds # observed composed resources
 extra = option("params")?.extraResources
-
-_default_labels = {
-  **oxr.metadata?.labels,
-  "skycluster.io/managed-by" = "skycluster"
-}
-_default_annotations = {**oxr.metadata?.annotations}
 
 _ns = _skySetup.spec.namespace or "skycluster-system"
 
@@ -192,8 +185,8 @@ _items += [
     spec.publicIp, spec.privateIp, 
     ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.kubeconfig,
     ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.token) \
-    for n, spec in _gwNodesMap \
-      if spec.secretGate or ocds?[spec.secret?.generate]
+    for n, spec in _gwNodesMap
+      # if spec.secretGate or ocds?[spec.secret?.generate]
 ]
 
 #
@@ -221,8 +214,8 @@ _items += [
 
 # Currently only supporting one gateway node (one k3s controller)
 _k3sHostIP = _gwNodesMap[_gwNodeName]?.privateIp or Undefined
-_k3sToken = ocds?[_gwNodesMap[_gwNodeName].ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.token
-_kubeconfig = ocds?[_gwNodesMap[_gwNodeName].ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.kubeconfig
+_k3sToken = ocds?[_gwNodesMap[_gwNodeName].ssh.generate]?.Resource?.status?.atProvider?.observed?.fields?.token
+_kubeconfig = ocds?[_gwNodesMap[_gwNodeName].ssh.generate]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig
 # Depends on K3S controller installation
 _k3sAgentEnsureSc = _k3sAgentEnsureSc.replace("__K3STOKEN__", _k3sToken)\
   .replace("__K3SHOSTIP__", _k3sHostIP)\
@@ -268,11 +261,14 @@ dxr = {
     serviceCidr = oxr.spec?.serviceCidr
     podCidr = oxr.spec?.podCidr
     # For easier access to cluster:
-    clusterSecretName = [v.secret?.observed for _, v in _gwNodesMap]?[0]
-    providerConfigs = { # first controller's provider configs
-      k8s = _gwNodesMap?[_gwNodeName]?.providerConfigs?.k8s?.observed
-      helm = _gwNodesMap?[_gwNodeName]?.providerConfigs?.helm?.observed
-    }
+    if [v.secret?.observed for _, v in _gwNodesMap]?[0]:
+      clusterSecretName = [v.secret?.observed for _, v in _gwNodesMap]?[0]
+    if _gwNodesMap?[_gwNodeName]?.providerConfigs?.k8s?.observed or \
+      _gwNodesMap?[_gwNodeName]?.providerConfigs?.helm?.observed:
+      providerConfigs = { # first controller's provider configs
+        k8s = _gwNodesMap?[_gwNodeName]?.providerConfigs?.k8s?.observed
+        helm = _gwNodesMap?[_gwNodeName]?.providerConfigs?.helm?.observed
+      }
     controllers = [
       {
         **{k = v for k, v in obj if v and k in ["privateIp", "publicIp", "deviceNodeName"]}
@@ -306,8 +302,7 @@ _helper_ssh_task_k3s_ctrl = lambda s, pvCfgName, pbScript, ensScript {
     apiVersion = "ssh.crossplane.io/v1alpha1"
     kind = "SSHTask"
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name(s),
       },
     },
@@ -356,13 +351,12 @@ _helper_ssh_task_k3s_ctrl = lambda s, pvCfgName, pbScript, ensScript {
 _helper_cluster_secret = lambda s, PubIp, PrivIp, kubecfgB64, token {
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name(s),
       },
     },
     spec = {
-      deletionPolicy = "Delete"
+      deletionPolicy = "Delete"      
       forProvider = {
         manifest = {
           apiVersion = "v1",
@@ -370,12 +364,12 @@ _helper_cluster_secret = lambda s, PubIp, PrivIp, kubecfgB64, token {
           metadata = {
             name = "k3s-bm-{}-{}".format(_oxrProvRegion.lower(), PubIp.replace(".","-")),
             namespace = _ns,
-            labels = _default_labels | {
+            labels = {
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = oxr.metadata.name,
               "skycluster.io/provider-platform" = "baremetal"
             },
-            annotations = _default_annotations | {
+            annotations = {
               "skycluster.io/public-ip" = PubIp,
               "skycluster.io/private-ip" = PrivIp,
             },
@@ -388,7 +382,8 @@ _helper_cluster_secret = lambda s, PubIp, PrivIp, kubecfgB64, token {
           }
         },
       },
-      providerConfigRef.name = _k8sProvCfgName
+      if PubIp and PrivIp and kubecfgB64 and token:
+        providerConfigRef.name = _k8sProvCfgName
     }
   }
 }
@@ -406,7 +401,7 @@ _helper_cluster_k8s_provider_cfg = lambda s, secretName {
         dependsOn = {
           apiVersion = "v1"
           kind = "Secret"
-          name = secretName
+          name = secretName or "NotReadyYet"
           namespace = _ns
         }
       }]
@@ -454,7 +449,7 @@ _helper_cluster_helm_provider_cfg = lambda s, secretName {
         dependsOn = {
           apiVersion = "v1"
           kind = "Secret"
-          name = secretName
+          name = secretName or "NotReadyYet"
           namespace = _ns
         }
       }]
@@ -494,8 +489,7 @@ _helper_ssh_task_k3s_agent = lambda s, pvCfgName, pbScript, ensScript {
     apiVersion = "ssh.crossplane.io/v1alpha1"
     kind = "SSHTask"
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      annotations = {
         **helper._set_resource_name(s),
       },
     },
