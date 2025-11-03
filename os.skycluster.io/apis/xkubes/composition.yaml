@@ -782,10 +782,10 @@ spec:
                 serviceCidr = oxr.spec?.serviceCidr
                 podCidr = oxr.spec?.podCidr
                 # For easier access to cluster:
-                clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0]
+                clusterSecretName = [v.secret?.observed for _, v in _ctrlObjData]?[0] or Undefined
                 providerConfigs = { # fist controller's provider configs
-                  k8s = _ctrlObjData?[[k for k, _ in _ctrlObjData][0]]?.providerConfigs?.k8s?.observed
-                  helm = _ctrlObjData?[[k for k, _ in _ctrlObjData][0]]?.providerConfigs?.helm?.observed
+                  k8s = _ctrlObjData?[[k for k, _ in _ctrlObjData][0]]?.providerConfigs?.k8s?.observed or Undefined
+                  helm = _ctrlObjData?[[k for k, _ in _ctrlObjData][0]]?.providerConfigs?.helm?.observed or Undefined
                 }
                 if _subnetId or _networkId:
                   subnet = {
