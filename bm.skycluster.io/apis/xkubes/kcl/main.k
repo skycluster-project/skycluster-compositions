@@ -183,10 +183,10 @@ _items += [
   _helper_cluster_secret(
     spec.secret.generate, 
     spec.publicIp, spec.privateIp, 
-    ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.kubeconfig,
-    ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields.token) \
-    for n, spec in _gwNodesMap
-      # if spec.secretGate or ocds?[spec.secret?.generate]
+    ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields?.kubeconfig,
+    ocds?[spec.ssh.generate]?.Resource?.status?.atProvider?.observed?.fields?.token) \
+    for n, spec in _gwNodesMap \
+      if spec.secretGate or ocds?[spec.secret?.generate]
 ]
 
 #
