@@ -85,14 +85,15 @@ _items += [_helper_sg_rule_inbound_internal()]
 #
 # Inbound TCP security group rules
 #
-# _tcpPortDefaults = [
-#   {"fromPort" = 30000, "toPort" = 32767},
-#   {"fromPort" = 32768, "toPort" = 60999},
-# ]
+_tcpPortDefaults = [
+  {"fromPort" = 30000, "toPort" = 32767},
+  {"fromPort" = 32768, "toPort" = 60999},
+  {"fromPort" = 15000, "toPort" = 15100} # istio envoy
+]
 
-_tcpPortDefaults = _tcpPortDefaults if _tcpPortDefaults else [] + [
+_tcpPortDefaults = (_tcpPortDefaults if _tcpPortDefaults else []) + [
   {"fromPort" = port, "toPort" = port} 
-    for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250]
+    for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250 8000 8001 9000 9001]
 ]
 _tcpPortsToUse = _tcpPorts if _tcpPorts else _tcpPortDefaults
 
