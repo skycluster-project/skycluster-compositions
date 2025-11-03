@@ -1,4 +1,3 @@
-import json
 import helper.v1alpha1.main as helper
 
 oxr = option("params").oxr # observed composite resource

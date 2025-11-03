@@ -38,13 +38,6 @@ _appId = oxr.spec?.applicationId or Undefined
 assert _oxrProvPlatform and _oxrProvRegion and _oxrProvZone and _appId, \
   "Provider platform, region, and primary zone and application ID must be specified in the providerRef"
 
-
-_default_labels = {
-  **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
-}
-
-_default_annotations = {}
-
 _extractPrivateKey: (any) -> str = lambda data {
   _decstr = base64.decode(data) or Undefined
   _obj = json.decode(_decstr) if _decstr else Undefined
@@ -90,12 +83,8 @@ _items += [
     apiVersion = "aws.skycluster.io/v1alpha1"
     kind = "XInstance"
     metadata = {
-      labels = {
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
-      }
-      annotations = {
-        **helper._set_resource_name("xinstance")
-      }
+      labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+      annotations = helper._set_resource_name("xinstance")
     }
     spec = {
       applicationId = _appId
@@ -128,12 +117,8 @@ _items += [
     apiVersion = "gcp.skycluster.io/v1alpha1"
     kind = "XInstance"
     metadata = {
-      labels = {
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
-      }
-      annotations = {
-        **helper._set_resource_name("xinstance")
-      }
+      labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+      annotations = helper._set_resource_name("xinstance")
     }
     spec = {
       applicationId = _appId
@@ -166,12 +151,8 @@ _items += [
     apiVersion = "os.skycluster.io/v1alpha1"
     kind = "XInstance"
     metadata = {
-      labels = {
-        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
-      }
-      annotations = {
-        **helper._set_resource_name("xinstance")
-      }
+      labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+      annotations = helper._set_resource_name("xinstance")
     }
     spec = {
       applicationId = _appId
@@ -198,8 +179,8 @@ _items += [
 _secretSSHGate = all_true([_privateIp, _defaultPrivateKey, _providerK8SCfgName])
 _items += [k8sv1a2.Object{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+    annotations = {
       **helper._set_resource_name("secRemoteSSH"),
     },
   },
@@ -211,8 +192,7 @@ _items += [k8sv1a2.Object{
         metadata: {
           name: "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
           namespace: _ns,
-          labels: _default_labels,
-          annotations: _default_annotations,
+          labels: helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
         },
         type = "Opaque",
         stringData = {
@@ -234,8 +214,8 @@ _sshSecretName = ocds?["secRemoteSSH"]?.Resource?.status?.atProvider?.manifest?.
 _provCfgGate = all_true([_sshSecretName, _providerK8SCfgName])
 _items += [k8sv1a2.Object{
   "metadata" = {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
+    annotations = {
       **helper._set_resource_name("sshProviderConfig"),
     },
   },
@@ -259,8 +239,7 @@ _items += [k8sv1a2.Object{
         metadata = {
           name = "ssh-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), _privateIp),
           namespace = _ns,
-          labels = _default_labels,
-          annotations = _default_annotations,
+          labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _appId),
         },
         spec = {
           credentials = {

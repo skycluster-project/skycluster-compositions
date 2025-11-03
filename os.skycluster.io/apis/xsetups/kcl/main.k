@@ -77,12 +77,10 @@ _defaults = {
 }
 
 _default_labels = {
-  **oxr.metadata?.labels,
   **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
 }
 
 _default_annotations = {
-  **oxr.metadata?.annotations,
   **helper._is_paused_label(oxr.metadata.labels),
 }
 
