@@ -16,6 +16,9 @@ assert ctx is not Undefined, "Context must be provided in the params"
 _extraRes = ctx["apiextensions.crossplane.io/extra-resources"]
 assert _extraRes is not Undefined, "Extra resources must be provided in the context"
 
+_provSettings = _extraRes["ProviderSettings"]?[0] 
+assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
+
 _provCfg = _extraRes["ProviderConfig"][0]
 _skySetup = _extraRes["SkySetups"][0]
 
@@ -183,13 +186,14 @@ _tcpPortDefaults = [
   # {"fromPort" = 30000, "toPort" = 30050},
   # TODO: this is a very large range for ephemeral ports
   # check if any ports needed here
-  {"fromPort" = 30000, "toPort" = 60999}
+  {"fromPort" = 30000, "toPort" = 60999},
+  {"fromPort" = 15000, "toPort" = 15100} # istio envoy
   # {"fromPort" = 30000, "toPort" = 32767},
   # {"fromPort" = 32768, "toPort" = 60999}, 
 ]
 _tcpPortDefaults = _tcpPortDefaults + [
   {"fromPort" = port, "toPort" = port} 
-    for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250 10901 10902]
+    for port in [22 80 443 6443 8080 9100 179 4789 5473 2379 10250 10901 10902 8000 8001 9000 9001]
     # 10901 10902 for thanos query
 ]
 _tcpPortsToUse = _tcpPorts if _tcpPorts else _tcpPortDefaults
@@ -305,26 +309,31 @@ _ocdsSubnets = [v.Resource for k, v in ocds if k.find("subnet") != -1 and v.Reso
 
 dxr = {
   **option("params").dxr,
-  status.vpc = {
-    id = _vpcId
-    cidrBlock = _vpcCidr 
-  } if _vpcId else {},
-  status.subnets = [
-    {
-      type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
-      id = v.status?.atProvider?.id
-      cidrBlock = v.status?.atProvider?.cidrBlock
-    } for _, v in _ocdsSubnets if v
-  ]
-  status.gateway = {
-    publicIp = _publicAddress
-    privateIp = _privateAddress
-  } if _publicAddress or _privateAddress else {},
+  status = {
+    if _vpcId:
+      vpc = {
+        id = _vpcId
+        cidrBlock = _vpcCidr 
+      }
+    subnets = [
+      {
+        type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
+        id = v.status?.atProvider?.id
+        cidrBlock = v.status?.atProvider?.cidrBlock
+      } for _, v in _ocdsSubnets if v
+    ]
+    if _publicAddress or _privateAddress:
+      gateway = {
+        publicIp = _publicAddress
+        privateIp = _privateAddress
+      }
+    if _provSettings.metadata?.labels?["skycluster.io/provider-profile"]:
+      providerProfileName = _provSettings.metadata?.labels["skycluster.io/provider-profile"]
+  }
 }
 
 # Collect all resources into a list for output
 items = [*_items, dxr]
-
 
 
 _helper_route_internet = lambda s {

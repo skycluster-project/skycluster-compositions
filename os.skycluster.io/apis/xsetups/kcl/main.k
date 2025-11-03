@@ -19,6 +19,9 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 _provCfg = _extraRes["ProviderConfig"][0]
 _skySetup = _extraRes["SkySetups"][0]
 
+_provSettings = _extraRes["ProviderSettings"]?[0] 
+assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
+
 _ns = _skySetup.spec.namespace or "skycluster-system"
 
 _oxrProvRegion = oxr.spec.providerRef.region
@@ -465,6 +468,8 @@ _defaultSecGroup = ocds?["secgroup"]?.Resource?.status?.atProvider?.id
 dxr = {
   **option("params").dxr,
   status = {
+    if _provSettings.metadata?.labels?["skycluster.io/provider-profile"]:
+      providerProfileName = _provSettings.metadata?.labels["skycluster.io/provider-profile"]
     if _vpcId:
       vpc = {
         id = _vpcId

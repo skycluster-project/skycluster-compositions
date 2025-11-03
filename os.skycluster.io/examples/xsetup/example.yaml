@@ -53,6 +53,7 @@ spec:
 
 status:
   log: "Setup created successfully."
+  providerProfileName: "example-provider-profile"
   externalNetwork:
     networkName: ext-net
     networkId: ext-net-id 

@@ -48,24 +48,12 @@ _defaults = {
   },
 }
 
-_default_labels = {
-  **oxr.metadata?.labels,
-  **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-}
-
-_default_annotations = {
-  **oxr.metadata?.annotations,
-  **helper._is_paused_label(oxr.metadata.labels),
-}
-
 _networkId = _xsetup?.status?.vpc?.id
 _subnets = oxr.spec?.subnets or _xsetup?.status?.subnets or []
 _items += [opv1a1.PortV2{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
-      **helper._set_resource_name("port{}".format(i)),
-    },
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+    annotations = helper._set_resource_name("port{}".format(i)),
   },
   spec = _defaults | {
     forProvider = {
@@ -83,10 +71,11 @@ _items += [opv1a1.PortV2{
 
 _items += [opv1a1.KeypairV2{
   "metadata": {
-    labels = _default_labels | {
+    labels = {
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       "skycluster.io/composite-name": _oxrName
     }
-    annotations = _default_annotations | {
+    annotations = {
       **helper._set_resource_name("keypair"),
       **helper._external_resources(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "KeypairV2")
     },
@@ -106,8 +95,8 @@ _keypairName = ocds?["keypair"]?.Resource?.status?.atProvider?.name if oxr.spec.
 
 _items += [opv1a1.SecgroupV2{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+    annotations = {
       **helper._set_resource_name("secgroup"),
       **helper._external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "SecgroupV2")
     },
@@ -127,8 +116,8 @@ _udpPorts = oxr.spec.udpPorts or []
 
 _items += [opv1a1.SecgroupRuleV2{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+    annotations = {
       **helper._set_resource_name("secgroupRule{}{}".format(p.protocol, i)),
     },
   },
@@ -150,8 +139,8 @@ _extNetworkName = _xsetup.status?.externalNetwork?.networkName
 
 _items += [opv1a1.FloatingipV2{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+    annotations = {
       **helper._set_resource_name("floatingip"),
       **helper._external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "FloatingipV2")
     },
@@ -172,8 +161,8 @@ _instanceIp = ocds?["instance"]?.Resource?.status?.atProvider?.accessIpV4 or Und
 
 _items += [opv1a1.FloatingipAssociateV2{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+    annotations = {
       **helper._set_resource_name("floatingipAssociate"),
       **helper._external_resources(_oxrAnnotations, "networking.openstack.crossplane.io/v1alpha1", "FloatingipAssociateV2")
     },
@@ -203,8 +192,12 @@ _userData = _userData.replace("__GW_ADDRESS__", _xsetup?.status?.gateway?.privat
 
 _items += [opv1a1.InstanceV2{
   "metadata": {
-    labels = _default_labels
-    annotations = _default_annotations | {
+    labels = {
+      **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
+      if _xsetup?.status?.providerProfileName:
+        "skycluster.io/provider-profile" = _xsetup?.status?.providerProfileName,
+    },
+    annotations = {
       **helper._set_resource_name("instance"),
       **helper._external_resources(_oxrAnnotations, "compute.openstack.crossplane.io/v1alpha1", "InstanceV2")
     },

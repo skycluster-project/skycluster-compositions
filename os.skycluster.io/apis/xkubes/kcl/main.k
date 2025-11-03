@@ -62,16 +62,6 @@ _defaults = {
   },
 }
 
-_default_labels = {
-  **oxr.metadata?.labels,
-  **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-}
-
-_default_annotations = {
-  **oxr.metadata?.annotations,
-  **helper._is_paused_label(oxr.metadata.labels),
-}
-
 _filter_objects: (any, str) -> [any] = lambda _objects, role {
   [{
     name = o.metadata?.name
@@ -305,8 +295,8 @@ _items += [
     apiVersion = "ssh.crossplane.io/v1alpha1"
     kind = "SSHTask"
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+      annotations = {
         **helper._set_resource_name(cv.ssh?.generate),
       },
     },
@@ -352,8 +342,8 @@ _items += [
 _items += [
   k8sv1a2.Object{
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
+      labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+      annotations = {
         # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
         # changed, the resource is re-created subsequently
         **helper._set_resource_name(cv.secret?.generate),
@@ -368,12 +358,13 @@ _items += [
           metadata = {
             name = "k3s-{}-{}-{}".format(_oxrProvPlatform.lower(), _oxrProvRegion.lower(), cv.publicIp.replace(".","-")),
             namespace = _ns,
-            labels = _default_labels | {
+            labels = {
+              **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "openstack"
             },
-            annotations = _default_annotations | {
+            annotations = {
               "skycluster.io/public-ip" = cv.publicIp,
               "skycluster.io/private-ip" = cv.privateIp,
             },
@@ -398,10 +389,11 @@ _items += [
 _items += [
   k8sv1a2.Object{
     "metadata" = {
-      labels = {"skycluster.io/managed-by" = "skycluster"}
-      annotations = {
-        **helper._set_resource_name(cv.providerConfigs?.k8s?.generate)
-      },
+      labels = {
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/managed-by" = "skycluster"
+        }
+      annotations = helper._set_resource_name(cv.providerConfigs?.k8s?.generate)
     },
     spec = {
       references = [{
@@ -449,7 +441,10 @@ _items += [
 _items += [
   k8sv1a2.Object{
     "metadata" = {
-      labels = {"skycluster.io/managed-by" = "skycluster"}
+      labels = {
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/managed-by" = "skycluster"
+      }
       annotations = {
         **helper._set_resource_name(cv.providerConfigs?.helm?.generate)
       },
@@ -472,6 +467,7 @@ _items += [
             name = "k8s-os-{}".format(oxr.metadata.name),
             namespace = _ns,
             labels = {
+              **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
               "skycluster.io/managed-by" = "skycluster"
               "skycluster.io/config-type" = "helm-connection-data"
               "skycluster.io/cluster-name" = _oxrName
@@ -571,12 +567,11 @@ _items += [
     "apiVersion" = "skycluster.io/v1alpha1",
     "kind" = "XInstance",
     "metadata" = {
-      labels = _default_labels | {
+      labels = {
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/instance-role" = "worker"
       }
-      annotations = _default_annotations | {
-        **helper._set_resource_name(k),
-      },
+      annotations = helper._set_resource_name(k)
     },
     "spec" = {
       applicationId = _oxrAppId,
@@ -605,11 +600,9 @@ _items += [
     apiVersion = "ssh.crossplane.io/v1alpha1"
     kind = "SSHTask"
     metadata = {
-      labels = _default_labels
-      annotations = _default_annotations | {
-        **helper._set_resource_name(v.ssh?.generate),
-      },
-    },
+      labels = helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+      annotations = helper._set_resource_name(v.ssh?.generate)
+    }
     spec = {
       providerConfigRef.name = v.providerConfigs?.ssh?.observed
       forProvider = {
@@ -724,8 +717,11 @@ _helper_create_instance = lambda k, c {
     "apiVersion" = "skycluster.io/v1alpha1",
     "kind" = "XInstance",
     "metadata" = {
-      labels = _default_labels | {"skycluster.io/instance-role" = "controller"}
-      annotations = _default_annotations | {
+      labels =  {
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+        "skycluster.io/instance-role" = "controller"
+      }
+      annotations = {
         # We fetch the first nodeGroup, and we hash the nodeGroup, so if the first nodeGroup
         # changed, the resource is re-created subsequently
         **helper._set_resource_name(k),

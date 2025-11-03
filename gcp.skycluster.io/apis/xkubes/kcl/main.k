@@ -406,10 +406,13 @@ _helper_node_group = lambda i, ng, e {
             diskType = "pd-standard",
             imageType = "UBUNTU_CONTAINERD",
             machineType = ng.instanceType or "e2-medium",
-            if ng.publicAccess:
-              labels = {
+            labels = {
+              if ng.publicAccess:
                 "submariner.io/gateway" = "true"
-              }
+              if _xSetup.status?.providerProfileName:
+                "skycluster.io/provider-profile" = _xSetup.status?.providerProfileName
+            }
+              
             metadata.disableLegacyEndpoints = "true",
             oauthScopes = [
               "https://www.googleapis.com/auth/cloud-platform"

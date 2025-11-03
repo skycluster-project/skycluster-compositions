@@ -37,6 +37,7 @@ spec:
     zone: default
 status:
   log: "Instance created successfully."
+  providerProfileName: "example-provider-profile"
   network:
     publicIp: "203.0.113.0"
     privateIp: "10.0.0.1"

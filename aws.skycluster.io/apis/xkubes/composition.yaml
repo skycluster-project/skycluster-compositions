@@ -844,6 +844,8 @@ spec:
                     labels = {
                       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
                       **{
+                        if _provSettings?.metadata?.labels?["skycluster.io/provider-profile"]:
+                          "skycluster.io/provider-profile" = _provSettings.metadata.labels["skycluster.io/provider-profile"]
                         "skycluster.io/public-subnet" = "true"
                         "submariner.io/gateway" = "true"
                       } if ng.publicAccess else {
@@ -1550,6 +1552,8 @@ spec:
                           alias = "al2@latest"
                         }]
                         tags = {
+                          if _provSettings?.metadata?.labels?["skycluster.io/provider-profile"]:
+                            "skycluster.io/provider-profile" = _provSettings.metadata.labels["skycluster.io/provider-profile"]
                           KarpenterNodePoolName = "public" if ng.publicAccess else "private"
                           # NodeType = "default",
                           # intent = "apps",
@@ -1615,6 +1619,8 @@ spec:
                             } if ng.publicAccess else {
                               "skycluster.io/public-subnet" = "false"
                             },
+                            if _provSettings?.metadata?.labels?["skycluster.io/provider-profile"]:
+                              "skycluster.io/provider-profile" = _provSettings.metadata.labels["skycluster.io/provider-profile"]
                           }
                           spec = {
                             nodeClassRef = {

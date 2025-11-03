@@ -30,6 +30,23 @@ spec:
                   - key: skycluster.io/provider-region
                     type: FromCompositeFieldPath
                     valueFromFieldPath: spec.providerRef.region
+            - kind: ConfigMap
+              into: ProviderSettings
+              apiVersion: v1
+              type: Selector
+              selector:
+                maxMatch: 1
+                minMatch: 1
+                matchLabels:
+                  - key: skycluster.io/config-type
+                    type: Value
+                    value: provider-profile
+                  - key: skycluster.io/provider-platform
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.platform
+                  - key: skycluster.io/provider-region
+                    type: FromCompositeFieldPath
+                    valueFromFieldPath: spec.providerRef.region
             - kind: XSetup
               into: SkySetups
               apiVersion: skycluster.io/v1alpha1
@@ -74,6 +91,9 @@ spec:
 
             _provCfg = _extraRes["ProviderConfig"][0]
             _skySetup = _extraRes["SkySetups"][0]
+
+            _provSettings = _extraRes["ProviderSettings"]?[0] 
+            assert _provSettings is not Undefined, "Provider settings must be provided in the extra resources"
 
             _ns = _skySetup.spec.namespace or "skycluster-system"
 
@@ -521,6 +541,8 @@ spec:
             dxr = {
               **option("params").dxr,
               status = {
+                if _provSettings.metadata?.labels?["skycluster.io/provider-profile"]:
+                  providerProfileName = _provSettings.metadata?.labels["skycluster.io/provider-profile"]
                 if _vpcId:
                   vpc = {
                     id = _vpcId

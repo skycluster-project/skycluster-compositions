@@ -107,6 +107,8 @@ spec:
                 type: object
               log:
                 type: string
+              providerProfileName:
+                type: string
               router:
                 properties:
                   externalNetworkId:

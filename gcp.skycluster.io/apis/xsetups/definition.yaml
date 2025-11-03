@@ -79,6 +79,8 @@ spec:
                   name:
                     type: string
                 type: object
+              providerProfileName:
+                type: string
               log:
                 type: string
               podCidr:
