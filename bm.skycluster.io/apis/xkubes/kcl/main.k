@@ -365,6 +365,7 @@ _helper_cluster_secret = lambda s, PubIp, PrivIp, kubecfgB64, token {
             name = "k3s-bm-{}-{}".format(_oxrProvRegion.lower(), PubIp.replace(".","-")),
             namespace = _ns,
             labels = {
+              "skycluster.io/managed-by" = "skycluster",
               "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = oxr.metadata.name,
               "skycluster.io/provider-platform" = "baremetal"
