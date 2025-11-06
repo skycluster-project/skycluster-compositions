@@ -158,328 +158,70 @@ _xkubesRefData = {
 
 _items = []
 
-#
-# Dummy pod for submariner issue
-#
-_items += [
-    # This is a dummy pod that is required for submariner to detect service cidr.
-    # Submariner implement an outdated practice in determining service cidr where 
-    # in our case it fails.
-    _helper_dummy_pod_svc_cidr(s) for s in _clusterNamesRef \
-      if s != _k8sMgmtClusterName 
-] if _remoteK8SKubeconfigs else []
-_items += [
-    _helper_dummy_pod_cluster_cidr(s) for s in _clusterNamesRef \
-      if s != _k8sMgmtClusterName
-] if _remoteK8SKubeconfigs else []
 
-# # routing for gcp
+_items += [
+  {
+    apiVersion = "skycluster.io/v1alpha1"
+    kind = "XMeshSetup"
+    metadata = {
+      annotations = {
+        **helper._set_resource_name("meshsetup")
+      }
+    }
+    spec = {
+      clusterNames = oxr.spec?.clusterNames
+      localCluster = oxr.spec?.localCluster
+    }
+  }
+]
+
 # _items += [
-#     _helper_route_replicator_daemonset(s) for s in _clusterNamesRef \
-#       if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform == "gcp"
-# ] if _remoteK8SKubeconfigs else []
+#   {
+#     apiVersion = "skycluster.io/v1alpha1"
+#     kind = "XMeshCleanup"
+#     metadata = {
+#       annotations = {
+#         **helper._set_resource_name("meshcleanup")
+#       }
+#     }
+#     spec = {
+#       clusterNames = oxr.spec?.clusterNames
+#       localCluster = oxr.spec?.localCluster
+#     }
+#   }
+# ]
 
 _items += [
-    # This is a dummy pod that is required to apply rp_filter workaround for GCP clusters
-    # to work with Submariner
-    _helper_rp_filter_daemonset(s) for s in _clusterNamesRef \
-      if _xkubesRefData[s]?.platform in ["gcp", "aws"]
-] if _remoteK8SKubeconfigs else []
-
-#
-# Only for aws, enable IP forwarding using aws cli command
-#
-_items += [
-  _helper_src_dst_check_daemonset(s) for s in _clusterNamesRef \
-    if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
-      or ocds?["src-dst-check-daemon-{}".format(s)]
-]
-_items += [
-  _helper_sync_routes_daemonset(s) for s in _clusterNamesRef \
-    if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
-      or ocds?["sync-routes-daemon-{}".format(s)]
-]
-
-######################### Cleanup Istio and Submariner ############
-
-#
-# Submariner operator, using the secret above
-# We already create istio-operator for the local kubernetes cluster
-# so we skip creation for the local cluster
-#
-
-_chartsSubm = {
-  label = "subm"
-  version = "0.20.1"
-  repo = "https://submariner-io.github.io/submariner-charts/charts"
-  name = "submariner-operator"
-  ns = "submariner-operator"
-  blocking_obj = "Submariner/submariner" # # space-separated K8s object references
-  prefix_obj = "submariner"
-}
-
-_chartIstio = {
-  n = {
-    label = n
-    version = "1.27.0"
-    repo = "https://istio-release.storage.googleapis.com/charts"
-    name = n
-    ns = "istio-system"
-    prefix_obj = "istio"
-    # space-separated K8s object references
-    blocking_obj = " ".join(["CustomResourceDefinition/{}".format(s) for s in [
-      "wasmplugins.extensions.istio.io", 
-      "destinationrules.networking.istio.io", 
-      "envoyfilters.networking.istio.io", 
-      "gateways.networking.istio.io", 
-      "proxyconfigs.networking.istio.io", 
-      "serviceentries.networking.istio.io", 
-      "sidecars.networking.istio.io", 
-      "virtualservices.networking.istio.io", 
-      "workloadentries.networking.istio.io",
-      "authorizationpolicies.security.istio.io",
-      "peerauthentications.security.istio.io",
-      "requestauthentications.security.istio.io",
-      "telemetries.telemetry.istio.io"
-    ]])
-  } for n in ["base", "istiod"]
-}
-
-_items += [
-  *[_helper_cleanup_pod(s, _chartsSubm, _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef if s != _k8sMgmtClusterName],
-  *[_helper_cleanup_pod(s, _chartIstio["base"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef],
-  *[_helper_cleanup_pod(s, _chartIstio["istiod"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef]
-]
-
-# There are two types of config status: cacerts-status, cleanup-status
-# since configmap status are filtered based on oxr.metadata.name and this object is 
-# set a their controller reference, logically there cannot be more than one of these objects
-# (i.e. one for cacerts and one for cleanups)
-_helper_filter = lambda cms, name {
-  status = [cm.Resource for cm in cms if cm.Resource.metadata?.labels?["skycluster.io/result-type"] == name]?[0] \
-    if cms else Undefined
-  { "{}".format(s) = status?.data?[s] for s in _clusterNamesRef } if status else Undefined
-}
-_cleanupBase = _helper_filter(_cmsStatus, "cleanup-base")
-_cleanupIstiod = _helper_filter(_cmsStatus, "cleanup-istiod")
-_cleanupSubm = _helper_filter(_cmsStatus, "cleanup-submariner-operator")
-_cleanupIstioReadiness = lambda s {
-  False if not _cleanupBase or not _cleanupIstiod else \
-    all_true([_cleanupBase[s] == "true", _cleanupIstiod[s] == "true"])
-}
-_cleanupSubmReadiness: (any) -> bool = lambda s {
-  False if not _cleanupSubm else _cleanupSubm[s] == "true"
-}
-_cacertsStatus = _helper_filter(_cmsStatus, "cacerts-status")
-_cacertsReadiness = lambda s {
-  False if not _cacertsStatus else _cacertsStatus[s] == "true"
-}
-_remoteSecretsStatus = _helper_filter(_cmsStatus, "remote-secret-status")
-_remoteSecretsReadiness = lambda s {
-  False if not _remoteSecretsStatus else _remoteSecretsStatus[s] == "true"
-}
-# result-type "cacerts-status" or "cleanup-base" or "cleanup-istiod", "cleanup-submariner-operator", "remote-secret-status"
-
-#
-# Istio Base using helm
-#
-
-#
-# Ensure namespace istio-system and skycluster-system exists in the remote clusters and local
-# Note: provider config for local cluster is retrieved by same filter:
-# skycluster.io/config-type = k8s-connection-data through the extraResources
-#
-_items += [
-  k8sv1a2.Object{
+  {
+    apiVersion = "skycluster.io/v1alpha1"
+    kind = "XMeshNet"
     metadata = {
-      annotations =  helper._set_resource_name("ns-{}-{}".format(s,ns))
+      annotations = {
+        **helper._set_resource_name("meshnets")
+      }
     }
     spec = {
-      deletionPolicy = "Orphan"
-      forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Namespace"
-        metadata = {
-          name = ns
-          # TODO: Why do we need skycluster namespace?
-          # if ns == "skycluster":
-          #   labels = {"istio-injection" = "enabled"}
-        }
-      }
-      providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
+      clusterNames = oxr.spec?.clusterNames
+      localCluster = oxr.spec?.localCluster
     }
-  } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator"] \
-      if _cleanupIstioReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
+  }
 ]
 
-
-#
-# Pod Generating Headscale Certificate
-#
-# This job creates a POD that generates secrets for each cluster. The generated secret
-# contains generated CA certificates for the cluster and the remote-secret
-# used by istio, stored in a secret with name pattern of <secret-name>-cacerts,
-# where <secret-name> is the name of secret that contains kubeconfig data for the cluster.
-#
-# The generated secrets are identifiable by label 
-#   "skycluster.io/secret-type=istio-cluster-cacert"
-# and has a reference to its secret by
-#   "skycluster.io/cluster-name=<secret-name>"
-#
-# The generated secrets are stored in skycluster-system namespace
-# but need to be applied to the target namespace of istio-system
-# when they are created in the remote clusters.
-#
-
-
-#
-# Job: generating ca certs for each cluster, it generates certs based on secrets
-# filtered by skycluster.io/secret-type=k8s-connection-data
-# It also creates remote-secret for each cluster
-#
-# We need to recreate this pod if the list of clusters are modified
-# so we use a hash of the cluster names as the pod name
-_cacertPodName = "cacerts-{}".format(crypto.md5("".join(sorted(_clusterNamesRef))))
-_cacertPodName = _cacertPodName[:min(len(_cacertPodName),62)]
 _items += [
-  _helper_cacerts_pod(_cacertPodName)
-] if _k8sProvCfgName or ocds?[_cacertPodName] else []
-
-
-#
-# Install Istio on remote clusters
-#
-# Dealing with namespace creation is tricky, as we need to ensure that the namespace exists
-# before we can install Istio. 
-#
-# TOBE CHECKED:
-#  In my experience, "skipCreateNamespace" is not reliable
-#  to use since if it is set to True, the namespace is not created if it does not exist, 
-#  if it is set to False, the installation may fail if cannot manage the existing ones.
-#
-
-#
-# [K8S Object] Installing istio cacerts on each local cluster
-#
-_items += [
-  # TODO: may need to introduce clean-up job
-  k8sv1a2.Object{
+  {
+    apiVersion = "skycluster.io/v1alpha1"
+    kind = "XMeshIstio"
     metadata = {
-      labels = {"skycluster.io/secret-type": "remote"}
-      annotations = helper._set_resource_name("cacerts-{}".format(s))
+      annotations = {
+        **helper._set_resource_name("meshistios")
+      }
     }
     spec = {
-      # TODO: delete or orphan?
-      forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Secret"
-        metadata = {
-          name = "cacerts"
-          namespace = "istio-system"
-        }
-        data = {
-          "ca-cert.pem" = _remoteSecretsMap?[s]?.data?["ca-cert.pem"]
-          "ca-key.pem" = _remoteSecretsMap?[s]?.data?["ca-key.pem"]
-          "root-cert.pem" = _remoteSecretsMap?[s]?.data?["root-cert.pem"]
-          "cert-chain.pem" = _remoteSecretsMap?[s]?.data?["cert-chain.pem"]
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
+      clusterNames = oxr.spec?.clusterNames
+      localCluster = oxr.spec?.localCluster
     }
-  } for i, s in _clusterNamesRef \
-     if (_cleanupIstioReadiness(s) and _remoteSecretsMap and _remoteSecretsMap[s] and _remoteProviderCfgsMaps) \
-      or ocds?["cacerts-{}".format(s)]
-]
-
-#
-# Submariner Setup
-#
-# Create a secret for Submariner connection on a remote cluster
-# Need to get psk, brokerCA, brokerToken and apiServer, using extraResource to fetch them.
-#
-
-# Expected only one submarinerSecret
-_subSecretData = extra?["submarinerSecret"]?[0]?.Resource?.data?["values.yaml"]
-if _subSecretData:
-  assert len(extra?["submarinerSecret"]) == 1, \
-    "Expected exactly one submarinerSecret, found {}".format(len(extra?["submarinerSecret"]))
-
-_subSecret = json.decode(base64.decode(_subSecretData)) if _subSecretData else Undefined
-_apiServer = _subSecret?.broker?.server
-_psk = _subSecret?.ipsec?.psk
-_brokerCA = _subSecret?.broker?.ca
-_brokerToken = _subSecret?.broker?.token
-
-#
-# Submariner Secret for remote clusters
-# The local management cluster already have this secret
-#
-_items += [
-  # submariner-connection-secret already is setup in the management cluster
-  _helper_submariner_secret(s, _psk, _apiServer, _brokerCA, _brokerToken) \
-    for s in _clusterNamesRef \
-      if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
-        or ocds?["submSec{}".format(s)] 
-]
-
-_items += [
-  # We don't need to install submariner in the management cluster
-  _helper_subm_operator(s, _chartsSubm, _xkubesRefData[s]?.platform) \
-    for s in _clusterNamesRef \
-      if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
-        or ocds?["submOp{}".format(s)]
-]
-
-
-# # # ################# Istio Setup ###############
-
-_items += [
-  _helper_istio_base(s, _chartIstio["base"]) \
-    for s in _clusterNamesRef \
-      if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
-        and _remoteProviderCfgsMaps) \
-        or ocds?["istio-base-{}".format(s)]
-]
-
-# #
-# # Istio operator using helm
-# #
-_items += [
-  _helper_istio_operator(s, _chartIstio["istiod"]) for s in _clusterNamesRef \
-    if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
-      and _remoteProviderCfgsMaps) \
-      or ocds?["istiod-{}".format(s)]
-]
-
-#
-# Create remote secrets, it must be created after base and istio releases
-#   This script uses istioctl to create the necessary certificates
-#   for remote clusters and store all data in <cluster-name>-cacerts secret 
-#   in the local management cluster.
-#   If the secret exists, it will be reused.
-#
-_items += [
-  _helper_remote_secret(s) for s in _clusterNamesRef \
-    if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
-      ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
-      _k8sProvCfgName
-]
-
-#
-# Apply remote-secret for each cluster on all other clusters
-# Create a remote secret for cluster s on cluster t
-# It fetches the generated remote-secret for cluster s and applies it to cluster t
-#
-_items += [ # install secret s into cluster t
-  _helper_istio_remote_secret(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
-    if (s != t and _remoteSecretsReadiness(s) and _cleanupIstioReadiness(t) \
-        and _remoteSecretsMap and _remoteProviderCfgsMaps) \
-      or ocds?["istio-rsec-{}-{}".format(s,t)]
-] 
-
-
+  }
+] if helper._ready(ocds?["meshnets"]) or ocds?["meshistios"] else [] 
 
 # # ###################### dxr ######################
 
@@ -488,11 +230,11 @@ dxr = {
   status = {
     clusters = [{ 
       nameRef = s
-      providerConfigName = _remoteK8SProviderCfgsMap[s]
-      if _remoteSecretsMap:
-        secretName = _remoteSecretsMap?[s]?.name or Undefined
+      # providerConfigName = _remoteK8SProviderCfgsMap[s]
+      # if _remoteSecretsMap:
+      #   secretName = _remoteSecretsMap?[s]?.name or Undefined
     } for s in _clusterNamesRef]
-    log = json.encode(_xkubesRefData)
+    # log = json.encode(_xkubesRefData)
   }
 }
 
@@ -546,1036 +288,1360 @@ items = [*_items, dxr, extraItems]
 
 
 
+# #
+# # Dummy pod for submariner issue
+# #
+# _items += [
+#     # This is a dummy pod that is required for submariner to detect service cidr.
+#     # Submariner implement an outdated practice in determining service cidr where 
+#     # in our case it fails.
+#     _helper_dummy_pod_svc_cidr(s) for s in _clusterNamesRef \
+#       if s != _k8sMgmtClusterName 
+# ] if _remoteK8SKubeconfigs else []
+# _items += [
+#     _helper_dummy_pod_cluster_cidr(s) for s in _clusterNamesRef \
+#       if s != _k8sMgmtClusterName
+# ] if _remoteK8SKubeconfigs else []
 
-_helper_cleanup_pod = lambda s, c, kc, k8scfg {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {
-        "skycluster.io/pod-type": "cleanup-pod",
-        "skycluster.io/cluster-name": "{}".format(s)
-      }
-      annotations = helper._set_resource_name("cl-{}-{}".format(c.label, s)) | {
-        "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
-      }
-    }
-    spec =  {
-      forProvider.manifest = {
-        apiVersion = "batch/v1"
-        kind = "Job"
-        metadata = { 
-          name = "cl-{}-{}".format(c.label, s),
-          namespace = "skycluster-system",
-          labels = {
-            "skycluster.io/pod-type": "cleanup-pod",
-            "skycluster.io/cluster-name": s
-          },
-        } 
-        spec = {
-          completions = 1
-          backoffLimit = 0
-          if ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template:
-            # reuse existing template if exists, for some reason, pod template spec ends up being modified
-            template = ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template
-          else:
-            template = {
-              metadata = {
-                labels = {
-                  "skycluster.io/pod-type": "cleanup-pod",
-                  "skycluster.io/cluster-name": s
-                }
-              }
-              spec = {
-                serviceAccountName = "skycluster-sva"
-                restartPolicy = "Never"
-                volumes = [{
-                    name = "work"
-                    emptyDir = {}
-                  }, {
-                    name = "script"
-                    configMap = {
-                      name = "script-kubemesh-setup"
-                      defaultMode = 0755
-                    }
-                  }
-                ]
-                containers = [{
-                    name = "runner"
-                    image = "etesami/kubectl:latest"
-                    imagePullPolicy = "Always"
-                    command = ["/bin/bash","-lc","/script/cleanup.sh"]
-                    env = [{
-                        name = "CLUSTER_NAME"
-                        value = s
-                      }, {
-                        name = "CHART_REPO"
-                        value = c.repo
-                      }, {
-                        name = "CHART_NAME"
-                        value = c.name
-                      }, {
-                        name = "CHART_VERSION"
-                        value = c.version
-                      },{
-                        name = "CHART_NAMESPACE"
-                        value = c.ns
-                      }, {
-                        name = "KUBECONFIG_B64"
-                        value = kc[s]?["kubeconfig"] or "local"
-                      }, {
-                        # space-separated K8s object references
-                        name = "BLOCKING_OBJECTS"
-                        value = c.blocking_obj or Undefined
-                      }, {
-                        name = "CLUSTERROLE_PREFIX"
-                        value = c.prefix_obj
-                      }, {
-                        name = "OWNER"
-                        value = oxr.metadata.name
-                      }, {
-                        name = "OWNER_PATCH"
-                        value = json.encode({
-                          metadata = {
-                            ownerReferences = [{
-                              apiVersion = "skycluster.io/v1alpha1",
-                              kind = "XKubeMesh",
-                              name = oxr.metadata.name,
-                              uid = oxr.metadata.uid,
-                              controller = True,
-                              blockOwnerDeletion = True
-                            }]
-                          }
-                        })
-                      }, {
-                        name = "SCRIPTS_DIR"
-                        value = "/script"
-                      }
-                    ]
-                    volumeMounts = [{
-                        name = "work"
-                        mountPath = "/work"
-                      }, {
-                        name = "script"
-                        mountPath = "/script"
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-        }
-      }
-      providerConfigRef = {
-        name = k8scfg
-      }
-    }
-  }
-}
+# # # routing for gcp
+# # _items += [
+# #     _helper_route_replicator_daemonset(s) for s in _clusterNamesRef \
+# #       if s != _k8sMgmtClusterName and _xkubesRefData[s]?.platform == "gcp"
+# # ] if _remoteK8SKubeconfigs else []
 
-_helper_dummy_pod_svc_cidr = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = helper._set_resource_name("d-svc-cidr-{}".format(s))
-    }
-    spec =  {
-      forProvider.manifest = {
-        apiVersion = "apps/v1"
-        kind = "Deployment"
-        metadata = { 
-          name = "d-svc-cidr-{}".format(s),
-          namespace = "kube-system",
-          labels = {
-            "component": "kube-apiserver"
-            "skycluster.io/pod-type": "dummy-pod"
-          },
-        }
-        spec = {
-          replicas = 1
-          selector = {
-            matchLabels = {
-              "component": "kube-apiserver"
-              "skycluster.io/pod-type": "dummy-pod"
-            }
-          }
-          template = {
-            metadata = {
-              labels = {
-                "component": "kube-apiserver"
-                "skycluster.io/pod-type": "dummy-pod"
-              }
-            }
-            spec = {
-              containers = [{
-                name = "dummy-container"
-                image = "busybox"
-                command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
-                args = ["--service-cluster-ip-range={}".format(_xkubesRefData[s]?.serviceCidr)]  
-              }]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        # run the pod in the local cluster and use kubeconfig to configure remote cluster
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# _items += [
+#     # This is a dummy pod that is required to apply rp_filter workaround for GCP clusters
+#     # to work with Submariner
+#     _helper_rp_filter_daemonset(s) for s in _clusterNamesRef \
+#       if _xkubesRefData[s]?.platform in ["gcp", "aws"]
+# ] if _remoteK8SKubeconfigs else []
 
-_helper_dummy_pod_cluster_cidr = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "dummy-pod"}
-      annotations = helper._set_resource_name("d-cidr-{}".format(s))
-    }
-    spec =  {
-      forProvider.manifest = {
-        apiVersion = "apps/v1"
-        kind = "Deployment"
-        metadata = { 
-          name = "d-cidr-{}".format(s),
-          namespace = "kube-system",
-          labels = {
-            "component": "kube-controller-manager"
-            "skycluster.io/pod-type": "dummy-pod"
-          },
-        }
-        spec = {
-          replicas = 1
-          selector = {
-            matchLabels = {
-              "component": "kube-controller-manager"
-              "skycluster.io/pod-type": "dummy-pod"
-            }
-          }
-          template = {
-            metadata = {
-              labels = {
-                "component": "kube-controller-manager"
-                "skycluster.io/pod-type": "dummy-pod"
-              }
-            }
-            spec = {
-              containers = [{
-                name = "dummy-container"
-                image = "busybox"
-                command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
-                args = ["--cluster-cidr={}".format(_xkubesRefData[s]?.podCidr)]
-              }]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        # run the pod in the local cluster and use kubeconfig to configure remote cluster
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# #
+# # Only for aws, enable IP forwarding using aws cli command
+# #
+# _items += [
+#   _helper_src_dst_check_daemonset(s) for s in _clusterNamesRef \
+#     if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
+#       or ocds?["src-dst-check-daemon-{}".format(s)]
+# ]
+# _items += [
+#   _helper_sync_routes_daemonset(s) for s in _clusterNamesRef \
+#     if _xkubesRefData[s]?.platform == "aws" and _remoteProviderCfgsMaps \
+#       or ocds?["sync-routes-daemon-{}".format(s)]
+# ]
 
-_helper_rp_filter_daemonset = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "rp-filter"}
-      annotations = helper._set_resource_name("rp-filter-{}".format(s))
-    }
-    spec = {
-      forProvider.manifest = {
-        apiVersion = "apps/v1"
-        kind = "DaemonSet"
-        metadata = {
-          name = "rp-filter-{}".format(s),
-          namespace = "kube-system",
-          labels = {
-            "component": "kube-apiserver"
-            "skycluster.io/pod-type": "rp-filter"
-          },
-        }
-        spec = {
-          selector.matchLabels = {
-            "name": "rp-filter-{}".format(s)
-          }
-          template = {
-            metadata.labels = {
-              "name": "rp-filter-{}".format(s)
-            }
-            spec = {
-              hostNetwork = True
-              restartPolicy = "Always"
-              containers = [{
-                name = "netshoot-hostmount"
-                image = "nicolaka/netshoot"
-                args = ["/bin/bash","-c","echo 2 > /proc/sys/net/ipv4/conf/all/rp_filter; sysctl net.ipv4.conf.all.rp_filter; tail -f /dev/null"]
-                stdin = True
-                stdinOnce = True
-                terminationMessagePath = "/dev/termination-log"
-                terminationMessagePolicy = "File"
-                tty = True
-                securityContext = {
-                  allowPrivilegeEscalation = True
-                  privileged = True
-                  runAsUser = 0
-                  capabilities = {
-                    add = ["ALL"]
-                  }
-                }
-                volumeMounts = [{
-                  mountPath = "/host"
-                  name = "host-slash"
-                  readOnly = True
-                }]
-              }]
-              volumes = [{
-                hostPath = {
-                  path = "/"
-                  type = ""
-                }
-                name = "host-slash"
-              }]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# ######################### Cleanup Istio and Submariner ############
 
-_helper_sync_routes_daemonset = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "sync-routes"}
-      annotations = helper._set_resource_name("sync-routes-{}".format(s))
-    }
-    spec = {
-      forProvider.manifest = {
-        apiVersion = "apps/v1"
-        kind = "DaemonSet"
-        metadata = {
-          name = "sync-routes-{}".format(s),
-          namespace = "kube-system",
-          labels = {
-            "skycluster.io/pod-type": "sync-routes"
-          },
-        }
-        spec = {
-          selector.matchLabels = {
-            "name": "sync-routes-{}".format(s)
-          }
-          template = {
-            metadata.labels = {
-              "name": "sync-routes-{}".format(s)
-            }
-            spec = {
-              hostNetwork = True
-              restartPolicy = "Always"
-              containers = [{
-                name = "netshoot-hostmount"
-                image = "nicolaka/netshoot"
-                args = ["/bin/bash","-c", _helper_sync_table_2_with_main]
-                stdin = True
-                stdinOnce = True
-                terminationMessagePath = "/dev/termination-log"
-                terminationMessagePolicy = "File"
-                tty = True
-                securityContext = {
-                  allowPrivilegeEscalation = True
-                  privileged = True
-                  runAsUser = 0
-                  capabilities = {
-                    add = ["ALL"]
-                  }
-                }
-                volumeMounts = [{
-                  mountPath = "/host"
-                  name = "host-slash"
-                  readOnly = True
-                }]
-              }]
-              volumes = [{
-                hostPath = {
-                  path = "/"
-                  type = ""
-                }
-                name = "host-slash"
-              }]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# #
+# # Submariner operator, using the secret above
+# # We already create istio-operator for the local kubernetes cluster
+# # so we skip creation for the local cluster
+# #
 
-_helper_src_dst_check_daemonset = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "src-dst-check"}
-      annotations = helper._set_resource_name("src-dst-check-{}".format(s))
-    }
-    spec = {
-      forProvider.manifest = {
-        apiVersion = "apps/v1"
-        kind = "DaemonSet"
-        metadata = {
-          name = "src-dst-check-{}".format(s),
-          namespace = "kube-system",
-          labels = {
-            "skycluster.io/pod-type": "src-dst-check"
-          },
-        }
-        spec = {
-          selector.matchLabels = {
-            "name": "src-dst-check-{}".format(s)
-          }
-          template = {
-            metadata.labels = {
-              "name": "src-dst-check-{}".format(s)
-            }
-            spec = {
-              hostNetwork = True
-              restartPolicy = "Always"
-              containers = [{
-                name = "aws-cli"
-                image = "amazon/aws-cli:2.15.40"
-                command: ["/bin/bash"]
-                args: ["-c", _helper_script_src_dst_check]
-                stdin = True
-                stdinOnce = True
-                terminationMessagePath = "/dev/termination-log"
-                terminationMessagePolicy = "File"
-                tty = True
-                securityContext = {
-                  allowPrivilegeEscalation = True
-                  privileged = True
-                  runAsUser = 0
-                  capabilities = {
-                    add = ["ALL"]
-                  }
-                }
-                volumeMounts = [
-                  {
-                  mountPath = "/host"
-                  name = "host-slash"
-                  readOnly = True
-                  }
-                ]
-              }]
-              volumes = [
-                {
-                  hostPath = {
-                    path = "/"
-                    type = ""
-                  }
-                  name = "host-slash"
-                }
-              ]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# _chartsSubm = {
+#   label = "subm"
+#   version = "0.20.1"
+#   repo = "https://submariner-io.github.io/submariner-charts/charts"
+#   name = "submariner-operator"
+#   ns = "submariner-operator"
+#   blocking_obj = "Submariner/submariner" # # space-separated K8s object references
+#   prefix_obj = "submariner"
+# }
 
-_helper_route_replicator_daemonset = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "route-replicator"}
-      annotations = helper._set_resource_name("route-replicator-{}".format(s))
-    }
-    spec = {
-      forProvider.manifest = {
-        apiVersion = "apps/v1"
-        kind = "DaemonSet"
-        metadata = {
-          name = "route-replicator-{}".format(s),
-          namespace = "kube-system",
-          labels = {
-            "component": "route-replicator"
-            "skycluster.io/pod-type": "route-replicator"
-            "role": "route-replicator"
-          },
-        }
-        spec = {
-          selector.matchLabels = {
-            "name": "route-replicator-{}".format(s)
-          }
-          template = {
-            metadata.labels = {
-              "name": "route-replicator-{}".format(s)
-              "role": "route-replicator"
-            }
-            spec = {
-              nodeSelector = {
-                "submariner.io/gateway" = "true"
-              }
-              hostNetwork = True
-              restartPolicy = "Always"
-              containers = [{
-                name = "route-replicator"
-                image = "alpine:3.18"
-                args = ["/bin/sh","-c", _helper_script_route_setup.replace("__POD_CIDR__", _xkubesRefData[s]?.podCidr).replace("__SVC_CIDR__", _xkubesRefData[s]?.serviceCidr)]
-                terminationMessagePath = "/dev/termination-log"
-                terminationMessagePolicy = "File"
-                securityContext = {
-                  runAsUser = 0
-                  capabilities = {
-                    add = ["NET_ADMIN"]
-                  }
-                }
-              }]              
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# _chartIstio = {
+#   n = {
+#     label = n
+#     version = "1.27.0"
+#     repo = "https://istio-release.storage.googleapis.com/charts"
+#     name = n
+#     ns = "istio-system"
+#     prefix_obj = "istio"
+#     # space-separated K8s object references
+#     blocking_obj = " ".join(["CustomResourceDefinition/{}".format(s) for s in [
+#       "wasmplugins.extensions.istio.io", 
+#       "destinationrules.networking.istio.io", 
+#       "envoyfilters.networking.istio.io", 
+#       "gateways.networking.istio.io", 
+#       "proxyconfigs.networking.istio.io", 
+#       "serviceentries.networking.istio.io", 
+#       "sidecars.networking.istio.io", 
+#       "virtualservices.networking.istio.io", 
+#       "workloadentries.networking.istio.io",
+#       "authorizationpolicies.security.istio.io",
+#       "peerauthentications.security.istio.io",
+#       "requestauthentications.security.istio.io",
+#       "telemetries.telemetry.istio.io"
+#     ]])
+#   } for n in ["base", "istiod"]
+# }
 
-_helper_remote_secret = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "istio-remote-secret"}
-      annotations = helper._set_resource_name("remote-secret-{}".format(s))
-    }
-    spec =  {
-      forProvider.manifest = {
-        apiVersion = "batch/v1"
-        kind = "Job"
-        metadata = { 
-          name = "istio-remote-secret-{}".format(s),
-          namespace = "skycluster-system",
-          labels =  {"skycluster.io/pod-type": "istio-remote-secret"},
-        }
-        spec = {
-          completions = 1
-          backoffLimit = 0
-          template = {
-            metadata = {
-              labels = {
-                "name": "istio-remote-secret-{}".format(s)
-              }
-            }
-            spec = {
-              serviceAccountName: "skycluster-sva"
-              restartPolicy = "Never"
-              volumes = [{
-                  name = "work"
-                  emptyDir = {}
-                }, {
-                  name = "script"
-                  configMap = {
-                    name = "script-kubemesh-setup"
-                    defaultMode = 0755
-                  }
-                }
-              ]
-              containers = [{
-                  name = "runner"
-                  image = "etesami/kubectl:latest"
-                  imagePullPolicy = "IfNotPresent"
-                  command = ["/bin/bash","-lc","/script/istio-remote-secret.sh"]
-                  env = [{
-                      name = "NAMESPACE"
-                      value = "skycluster-system"
-                    }, {
-                      name = "CLUSTER_NAME"
-                      value = "{}".format(s)
-                    }, {
-                      name = "OWNER"
-                      value = oxr.metadata.name
-                    }, {
-                      name = "SCRIPTS_DIR"
-                      value = "/script"
-                    }, {
-                      name = "OWNER_PATCH"
-                      value = json.encode({
-                        metadata = {
-                          ownerReferences = [{
-                            apiVersion = "skycluster.io/v1alpha1",
-                            kind = "XKubeMesh",
-                            name = oxr.metadata.name,
-                            uid = oxr.metadata.uid,
-                            controller = True,
-                            blockOwnerDeletion = True
-                          }]
-                        }
-                      })
-                    }
-                  ]
-                  volumeMounts = [{
-                      name = "work"
-                      mountPath = "/work"
-                    }, {
-                      name = "script"
-                      mountPath = "/script"
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-        }
-      }
-      providerConfigRef = {
-        name = _k8sProvCfgName
-      }
-    }
-  }
-}
+# _items += [
+#   *[_helper_cleanup_pod(s, _chartsSubm, _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef if s != _k8sMgmtClusterName],
+#   *[_helper_cleanup_pod(s, _chartIstio["base"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef],
+#   *[_helper_cleanup_pod(s, _chartIstio["istiod"], _remoteK8SKubeconfigs, _k8sProvCfgName) for s in _clusterNamesRef]
+# ]
 
-_helper_cacerts_pod = lambda s {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"}
-      annotations = helper._set_resource_name(s)
-    }
-    spec =  {
-      forProvider.manifest = {
-        apiVersion = "batch/v1"
-        kind = "Job"
-        metadata = { 
-          name = "istio-cacert-{}".format(s),
-          namespace = "skycluster-system",
-          labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"},
-        }
-        spec = {
-          completions = 1
-          backoffLimit = 0
-          template = {
-            metadata = {
-              labels = {
-                "name": "istio-cacert-{}".format(s)
-              }
-            }
-            spec = {
-              serviceAccountName: "skycluster-sva"
-              restartPolicy = "Never"
-              volumes = [{
-                  name = "work"
-                  emptyDir = {}
-                }, {
-                  name = "script"
-                  configMap = {
-                    name = "script-kubemesh-setup"
-                    defaultMode = 0755
-                  }
-                }
-              ]
-              containers = [{
-                  name = "runner"
-                  image = "etesami/kubectl:latest"
-                  imagePullPolicy = "IfNotPresent"
-                  command = ["/bin/bash","-lc","/script/istio-cluster-cacerts.sh"]
-                  env = [{
-                      name = "NAMESPACE"
-                      value = "skycluster-system"
-                    }, {
-                      name = "ROOT_SECRET_NAME"
-                      value = "istio-root-ca"
-                    }, {
-                      name = "KCFG_SELECTOR"
-                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
-                    }, {
-                      name = "OWNER"
-                      value = oxr.metadata.name
-                    }, {
-                      name = "SCRIPTS_DIR"
-                      value = "/script"
-                    }, {
-                      name = "OWNER_PATCH"
-                      value = json.encode({
-                        metadata = {
-                          ownerReferences = [{
-                            apiVersion = "skycluster.io/v1alpha1",
-                            kind = "XKubeMesh",
-                            name = oxr.metadata.name,
-                            uid = oxr.metadata.uid,
-                            controller = True,
-                            blockOwnerDeletion = True
-                          }]
-                        }
-                      })
-                    }
-                  ]
-                  volumeMounts = [{
-                      name = "work"
-                      mountPath = "/work"
-                    }, {
-                      name = "script"
-                      mountPath = "/script"
-                    }
-                  ]
-                }
-              ]
-            }
-          }
+# # There are two types of config status: cacerts-status, cleanup-status
+# # since configmap status are filtered based on oxr.metadata.name and this object is 
+# # set a their controller reference, logically there cannot be more than one of these objects
+# # (i.e. one for cacerts and one for cleanups)
+# _helper_filter = lambda cms, name {
+#   status = [cm.Resource for cm in cms if cm.Resource.metadata?.labels?["skycluster.io/result-type"] == name]?[0] \
+#     if cms else Undefined
+#   { "{}".format(s) = status?.data?[s] for s in _clusterNamesRef } if status else Undefined
+# }
+# _cleanupBase = _helper_filter(_cmsStatus, "cleanup-base")
+# _cleanupIstiod = _helper_filter(_cmsStatus, "cleanup-istiod")
+# _cleanupSubm = _helper_filter(_cmsStatus, "cleanup-submariner-operator")
+# _cleanupIstioReadiness = lambda s {
+#   False if not _cleanupBase or not _cleanupIstiod else \
+#     all_true([_cleanupBase[s] == "true", _cleanupIstiod[s] == "true"])
+# }
+# _cleanupSubmReadiness: (any) -> bool = lambda s {
+#   False if not _cleanupSubm else _cleanupSubm[s] == "true"
+# }
+# _cacertsStatus = _helper_filter(_cmsStatus, "cacerts-status")
+# _cacertsReadiness = lambda s {
+#   False if not _cacertsStatus else _cacertsStatus[s] == "true"
+# }
+# _remoteSecretsStatus = _helper_filter(_cmsStatus, "remote-secret-status")
+# _remoteSecretsReadiness = lambda s {
+#   False if not _remoteSecretsStatus else _remoteSecretsStatus[s] == "true"
+# }
+# # result-type "cacerts-status" or "cleanup-base" or "cleanup-istiod", "cleanup-submariner-operator", "remote-secret-status"
+
+# #
+# # Istio Base using helm
+# #
+
+# #
+# # Ensure namespace istio-system and skycluster-system exists in the remote clusters and local
+# # Note: provider config for local cluster is retrieved by same filter:
+# # skycluster.io/config-type = k8s-connection-data through the extraResources
+# #
+# _items += [
+#   k8sv1a2.Object{
+#     metadata = {
+#       annotations =  helper._set_resource_name("ns-{}-{}".format(s,ns))
+#     }
+#     spec = {
+#       deletionPolicy = "Orphan"
+#       forProvider.manifest = {
+#         apiVersion = "v1"
+#         kind = "Namespace"
+#         metadata = {
+#           name = ns
+#           # TODO: Why do we need skycluster namespace?
+#           # if ns == "skycluster":
+#           #   labels = {"istio-injection" = "enabled"}
+#         }
+#       }
+#       providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
+#     }
+#   } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator"] \
+#       if _cleanupIstioReadiness(s) or ocds?["ns-{}-{}".format(s,ns)]
+# ]
+
+
+# #
+# # Pod Generating Headscale Certificate
+# #
+# # This job creates a POD that generates secrets for each cluster. The generated secret
+# # contains generated CA certificates for the cluster and the remote-secret
+# # used by istio, stored in a secret with name pattern of <secret-name>-cacerts,
+# # where <secret-name> is the name of secret that contains kubeconfig data for the cluster.
+# #
+# # The generated secrets are identifiable by label 
+# #   "skycluster.io/secret-type=istio-cluster-cacert"
+# # and has a reference to its secret by
+# #   "skycluster.io/cluster-name=<secret-name>"
+# #
+# # The generated secrets are stored in skycluster-system namespace
+# # but need to be applied to the target namespace of istio-system
+# # when they are created in the remote clusters.
+# #
+
+
+# #
+# # Job: generating ca certs for each cluster, it generates certs based on secrets
+# # filtered by skycluster.io/secret-type=k8s-connection-data
+# # It also creates remote-secret for each cluster
+# #
+# # We need to recreate this pod if the list of clusters are modified
+# # so we use a hash of the cluster names as the pod name
+# _cacertPodName = "cacerts-{}".format(crypto.md5("".join(sorted(_clusterNamesRef))))
+# _cacertPodName = _cacertPodName[:min(len(_cacertPodName),62)]
+# _items += [
+#   _helper_cacerts_pod(_cacertPodName)
+# ] if _k8sProvCfgName or ocds?[_cacertPodName] else []
+
+
+# #
+# # Install Istio on remote clusters
+# #
+# # Dealing with namespace creation is tricky, as we need to ensure that the namespace exists
+# # before we can install Istio. 
+# #
+# # TOBE CHECKED:
+# #  In my experience, "skipCreateNamespace" is not reliable
+# #  to use since if it is set to True, the namespace is not created if it does not exist, 
+# #  if it is set to False, the installation may fail if cannot manage the existing ones.
+# #
+
+# #
+# # [K8S Object] Installing istio cacerts on each local cluster
+# #
+# _items += [
+#   # TODO: may need to introduce clean-up job
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/secret-type": "remote"}
+#       annotations = helper._set_resource_name("cacerts-{}".format(s))
+#     }
+#     spec = {
+#       # TODO: delete or orphan?
+#       forProvider.manifest = {
+#         apiVersion = "v1"
+#         kind = "Secret"
+#         metadata = {
+#           name = "cacerts"
+#           namespace = "istio-system"
+#         }
+#         data = {
+#           "ca-cert.pem" = _remoteSecretsMap?[s]?.data?["ca-cert.pem"]
+#           "ca-key.pem" = _remoteSecretsMap?[s]?.data?["ca-key.pem"]
+#           "root-cert.pem" = _remoteSecretsMap?[s]?.data?["root-cert.pem"]
+#           "cert-chain.pem" = _remoteSecretsMap?[s]?.data?["cert-chain.pem"]
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   } for i, s in _clusterNamesRef \
+#      if (_cleanupIstioReadiness(s) and _remoteSecretsMap and _remoteSecretsMap[s] and _remoteProviderCfgsMaps) \
+#       or ocds?["cacerts-{}".format(s)]
+# ]
+
+# #
+# # Submariner Setup
+# #
+# # Create a secret for Submariner connection on a remote cluster
+# # Need to get psk, brokerCA, brokerToken and apiServer, using extraResource to fetch them.
+# #
+
+# # Expected only one submarinerSecret
+# _subSecretData = extra?["submarinerSecret"]?[0]?.Resource?.data?["values.yaml"]
+# if _subSecretData:
+#   assert len(extra?["submarinerSecret"]) == 1, \
+#     "Expected exactly one submarinerSecret, found {}".format(len(extra?["submarinerSecret"]))
+
+# _subSecret = json.decode(base64.decode(_subSecretData)) if _subSecretData else Undefined
+# _apiServer = _subSecret?.broker?.server
+# _psk = _subSecret?.ipsec?.psk
+# _brokerCA = _subSecret?.broker?.ca
+# _brokerToken = _subSecret?.broker?.token
+
+# #
+# # Submariner Secret for remote clusters
+# # The local management cluster already have this secret
+# #
+# _items += [
+#   # submariner-connection-secret already is setup in the management cluster
+#   _helper_submariner_secret(s, _psk, _apiServer, _brokerCA, _brokerToken) \
+#     for s in _clusterNamesRef \
+#       if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
+#         or ocds?["submSec{}".format(s)] 
+# ]
+
+# _items += [
+#   # We don't need to install submariner in the management cluster
+#   _helper_subm_operator(s, _chartsSubm, _xkubesRefData[s]?.platform) \
+#     for s in _clusterNamesRef \
+#       if (s != _k8sMgmtClusterName and _cleanupSubmReadiness(s) and _remoteProviderCfgsMaps) \
+#         or ocds?["submOp{}".format(s)]
+# ]
+
+
+# # # # ################# Istio Setup ###############
+
+# _items += [
+#   _helper_istio_base(s, _chartIstio["base"]) \
+#     for s in _clusterNamesRef \
+#       if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
+#         and _remoteProviderCfgsMaps) \
+#         or ocds?["istio-base-{}".format(s)]
+# ]
+
+# # #
+# # # Istio operator using helm
+# # #
+# _items += [
+#   _helper_istio_operator(s, _chartIstio["istiod"]) for s in _clusterNamesRef \
+#     if (_cacertsReadiness(s) and _cleanupIstioReadiness(s) \
+#       and _remoteProviderCfgsMaps) \
+#       or ocds?["istiod-{}".format(s)]
+# ]
+
+# #
+# # Create remote secrets, it must be created after base and istio releases
+# #   This script uses istioctl to create the necessary certificates
+# #   for remote clusters and store all data in <cluster-name>-cacerts secret 
+# #   in the local management cluster.
+# #   If the secret exists, it will be reused.
+# #
+# _items += [
+#   _helper_remote_secret(s) for s in _clusterNamesRef \
+#     if ocds?["istiod-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
+#       ocds?["istio-base-{}".format(s)]?.Resource?.status?.atProvider?.state == "deployed" and \
+#       _k8sProvCfgName
+# ]
+
+# #
+# # Apply remote-secret for each cluster on all other clusters
+# # Create a remote secret for cluster s on cluster t
+# # It fetches the generated remote-secret for cluster s and applies it to cluster t
+# #
+# _items += [ # install secret s into cluster t
+#   _helper_istio_remote_secret(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
+#     if (s != t and _remoteSecretsReadiness(s) and _cleanupIstioReadiness(t) \
+#         and _remoteSecretsMap and _remoteProviderCfgsMaps) \
+#       or ocds?["istio-rsec-{}-{}".format(s,t)]
+# ] 
+
+
+
+
+
+# _helper_cleanup_pod = lambda s, c, kc, k8scfg {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {
+#         "skycluster.io/pod-type": "cleanup-pod",
+#         "skycluster.io/cluster-name": "{}".format(s)
+#       }
+#       annotations = helper._set_resource_name("cl-{}-{}".format(c.label, s)) | {
+#         "skycluster.io/creation-time" = "{}".format(oxr.metadata?.creationTimestamp)
+#       }
+#     }
+#     spec =  {
+#       forProvider.manifest = {
+#         apiVersion = "batch/v1"
+#         kind = "Job"
+#         metadata = { 
+#           name = "cl-{}-{}".format(c.label, s),
+#           namespace = "skycluster-system",
+#           labels = {
+#             "skycluster.io/pod-type": "cleanup-pod",
+#             "skycluster.io/cluster-name": s
+#           },
+#         } 
+#         spec = {
+#           completions = 1
+#           backoffLimit = 0
+#           if ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template:
+#             # reuse existing template if exists, for some reason, pod template spec ends up being modified
+#             template = ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template
+#           else:
+#             template = {
+#               metadata = {
+#                 labels = {
+#                   "skycluster.io/pod-type": "cleanup-pod",
+#                   "skycluster.io/cluster-name": s
+#                 }
+#               }
+#               spec = {
+#                 serviceAccountName = "skycluster-sva"
+#                 restartPolicy = "Never"
+#                 volumes = [{
+#                     name = "work"
+#                     emptyDir = {}
+#                   }, {
+#                     name = "script"
+#                     configMap = {
+#                       name = "script-kubemesh-setup"
+#                       defaultMode = 0755
+#                     }
+#                   }
+#                 ]
+#                 containers = [{
+#                     name = "runner"
+#                     image = "etesami/kubectl:latest"
+#                     imagePullPolicy = "Always"
+#                     command = ["/bin/bash","-lc","/script/cleanup.sh"]
+#                     env = [{
+#                         name = "CLUSTER_NAME"
+#                         value = s
+#                       }, {
+#                         name = "CHART_REPO"
+#                         value = c.repo
+#                       }, {
+#                         name = "CHART_NAME"
+#                         value = c.name
+#                       }, {
+#                         name = "CHART_VERSION"
+#                         value = c.version
+#                       },{
+#                         name = "CHART_NAMESPACE"
+#                         value = c.ns
+#                       }, {
+#                         name = "KUBECONFIG_B64"
+#                         value = kc[s]?["kubeconfig"] or "local"
+#                       }, {
+#                         # space-separated K8s object references
+#                         name = "BLOCKING_OBJECTS"
+#                         value = c.blocking_obj or Undefined
+#                       }, {
+#                         name = "CLUSTERROLE_PREFIX"
+#                         value = c.prefix_obj
+#                       }, {
+#                         name = "OWNER"
+#                         value = oxr.metadata.name
+#                       }, {
+#                         name = "OWNER_PATCH"
+#                         value = json.encode({
+#                           metadata = {
+#                             ownerReferences = [{
+#                               apiVersion = "skycluster.io/v1alpha1",
+#                               kind = "XKubeMesh",
+#                               name = oxr.metadata.name,
+#                               uid = oxr.metadata.uid,
+#                               controller = True,
+#                               blockOwnerDeletion = True
+#                             }]
+#                           }
+#                         })
+#                       }, {
+#                         name = "SCRIPTS_DIR"
+#                         value = "/script"
+#                       }
+#                     ]
+#                     volumeMounts = [{
+#                         name = "work"
+#                         mountPath = "/work"
+#                       }, {
+#                         name = "script"
+#                         mountPath = "/script"
+#                       }
+#                     ]
+#                   }
+#                 ]
+#               }
+#             }
+#         }
+#       }
+#       providerConfigRef = {
+#         name = k8scfg
+#       }
+#     }
+#   }
+# }
+
+# _helper_dummy_pod_svc_cidr = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "dummy-pod"}
+#       annotations = helper._set_resource_name("d-svc-cidr-{}".format(s))
+#     }
+#     spec =  {
+#       forProvider.manifest = {
+#         apiVersion = "apps/v1"
+#         kind = "Deployment"
+#         metadata = { 
+#           name = "d-svc-cidr-{}".format(s),
+#           namespace = "kube-system",
+#           labels = {
+#             "component": "kube-apiserver"
+#             "skycluster.io/pod-type": "dummy-pod"
+#           },
+#         }
+#         spec = {
+#           replicas = 1
+#           selector = {
+#             matchLabels = {
+#               "component": "kube-apiserver"
+#               "skycluster.io/pod-type": "dummy-pod"
+#             }
+#           }
+#           template = {
+#             metadata = {
+#               labels = {
+#                 "component": "kube-apiserver"
+#                 "skycluster.io/pod-type": "dummy-pod"
+#               }
+#             }
+#             spec = {
+#               containers = [{
+#                 name = "dummy-container"
+#                 image = "busybox"
+#                 command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
+#                 args = ["--service-cluster-ip-range={}".format(_xkubesRefData[s]?.serviceCidr)]  
+#               }]
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         # run the pod in the local cluster and use kubeconfig to configure remote cluster
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
+
+# _helper_dummy_pod_cluster_cidr = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "dummy-pod"}
+#       annotations = helper._set_resource_name("d-cidr-{}".format(s))
+#     }
+#     spec =  {
+#       forProvider.manifest = {
+#         apiVersion = "apps/v1"
+#         kind = "Deployment"
+#         metadata = { 
+#           name = "d-cidr-{}".format(s),
+#           namespace = "kube-system",
+#           labels = {
+#             "component": "kube-controller-manager"
+#             "skycluster.io/pod-type": "dummy-pod"
+#           },
+#         }
+#         spec = {
+#           replicas = 1
+#           selector = {
+#             matchLabels = {
+#               "component": "kube-controller-manager"
+#               "skycluster.io/pod-type": "dummy-pod"
+#             }
+#           }
+#           template = {
+#             metadata = {
+#               labels = {
+#                 "component": "kube-controller-manager"
+#                 "skycluster.io/pod-type": "dummy-pod"
+#               }
+#             }
+#             spec = {
+#               containers = [{
+#                 name = "dummy-container"
+#                 image = "busybox"
+#                 command = ["sh","-c","echo \"Starting dummy pod\";\n          tail -f /dev/null"]
+#                 args = ["--cluster-cidr={}".format(_xkubesRefData[s]?.podCidr)]
+#               }]
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         # run the pod in the local cluster and use kubeconfig to configure remote cluster
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
+
+# _helper_rp_filter_daemonset = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "rp-filter"}
+#       annotations = helper._set_resource_name("rp-filter-{}".format(s))
+#     }
+#     spec = {
+#       forProvider.manifest = {
+#         apiVersion = "apps/v1"
+#         kind = "DaemonSet"
+#         metadata = {
+#           name = "rp-filter-{}".format(s),
+#           namespace = "kube-system",
+#           labels = {
+#             "component": "kube-apiserver"
+#             "skycluster.io/pod-type": "rp-filter"
+#           },
+#         }
+#         spec = {
+#           selector.matchLabels = {
+#             "name": "rp-filter-{}".format(s)
+#           }
+#           template = {
+#             metadata.labels = {
+#               "name": "rp-filter-{}".format(s)
+#             }
+#             spec = {
+#               hostNetwork = True
+#               restartPolicy = "Always"
+#               containers = [{
+#                 name = "netshoot-hostmount"
+#                 image = "nicolaka/netshoot"
+#                 args = ["/bin/bash","-c","echo 2 > /proc/sys/net/ipv4/conf/all/rp_filter; sysctl net.ipv4.conf.all.rp_filter; tail -f /dev/null"]
+#                 stdin = True
+#                 stdinOnce = True
+#                 terminationMessagePath = "/dev/termination-log"
+#                 terminationMessagePolicy = "File"
+#                 tty = True
+#                 securityContext = {
+#                   allowPrivilegeEscalation = True
+#                   privileged = True
+#                   runAsUser = 0
+#                   capabilities = {
+#                     add = ["ALL"]
+#                   }
+#                 }
+#                 volumeMounts = [{
+#                   mountPath = "/host"
+#                   name = "host-slash"
+#                   readOnly = True
+#                 }]
+#               }]
+#               volumes = [{
+#                 hostPath = {
+#                   path = "/"
+#                   type = ""
+#                 }
+#                 name = "host-slash"
+#               }]
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
+
+# _helper_sync_routes_daemonset = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "sync-routes"}
+#       annotations = helper._set_resource_name("sync-routes-{}".format(s))
+#     }
+#     spec = {
+#       forProvider.manifest = {
+#         apiVersion = "apps/v1"
+#         kind = "DaemonSet"
+#         metadata = {
+#           name = "sync-routes-{}".format(s),
+#           namespace = "kube-system",
+#           labels = {
+#             "skycluster.io/pod-type": "sync-routes"
+#           },
+#         }
+#         spec = {
+#           selector.matchLabels = {
+#             "name": "sync-routes-{}".format(s)
+#           }
+#           template = {
+#             metadata.labels = {
+#               "name": "sync-routes-{}".format(s)
+#             }
+#             spec = {
+#               hostNetwork = True
+#               restartPolicy = "Always"
+#               containers = [{
+#                 name = "netshoot-hostmount"
+#                 image = "nicolaka/netshoot"
+#                 args = ["/bin/bash","-c", _helper_sync_table_2_with_main]
+#                 stdin = True
+#                 stdinOnce = True
+#                 terminationMessagePath = "/dev/termination-log"
+#                 terminationMessagePolicy = "File"
+#                 tty = True
+#                 securityContext = {
+#                   allowPrivilegeEscalation = True
+#                   privileged = True
+#                   runAsUser = 0
+#                   capabilities = {
+#                     add = ["ALL"]
+#                   }
+#                 }
+#                 volumeMounts = [{
+#                   mountPath = "/host"
+#                   name = "host-slash"
+#                   readOnly = True
+#                 }]
+#               }]
+#               volumes = [{
+#                 hostPath = {
+#                   path = "/"
+#                   type = ""
+#                 }
+#                 name = "host-slash"
+#               }]
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
+
+# _helper_src_dst_check_daemonset = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "src-dst-check"}
+#       annotations = helper._set_resource_name("src-dst-check-{}".format(s))
+#     }
+#     spec = {
+#       forProvider.manifest = {
+#         apiVersion = "apps/v1"
+#         kind = "DaemonSet"
+#         metadata = {
+#           name = "src-dst-check-{}".format(s),
+#           namespace = "kube-system",
+#           labels = {
+#             "skycluster.io/pod-type": "src-dst-check"
+#           },
+#         }
+#         spec = {
+#           selector.matchLabels = {
+#             "name": "src-dst-check-{}".format(s)
+#           }
+#           template = {
+#             metadata.labels = {
+#               "name": "src-dst-check-{}".format(s)
+#             }
+#             spec = {
+#               hostNetwork = True
+#               restartPolicy = "Always"
+#               containers = [{
+#                 name = "aws-cli"
+#                 image = "amazon/aws-cli:2.15.40"
+#                 command: ["/bin/bash"]
+#                 args: ["-c", _helper_script_src_dst_check]
+#                 stdin = True
+#                 stdinOnce = True
+#                 terminationMessagePath = "/dev/termination-log"
+#                 terminationMessagePolicy = "File"
+#                 tty = True
+#                 securityContext = {
+#                   allowPrivilegeEscalation = True
+#                   privileged = True
+#                   runAsUser = 0
+#                   capabilities = {
+#                     add = ["ALL"]
+#                   }
+#                 }
+#                 volumeMounts = [
+#                   {
+#                   mountPath = "/host"
+#                   name = "host-slash"
+#                   readOnly = True
+#                   }
+#                 ]
+#               }]
+#               volumes = [
+#                 {
+#                   hostPath = {
+#                     path = "/"
+#                     type = ""
+#                   }
+#                   name = "host-slash"
+#                 }
+#               ]
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
+
+# _helper_route_replicator_daemonset = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "route-replicator"}
+#       annotations = helper._set_resource_name("route-replicator-{}".format(s))
+#     }
+#     spec = {
+#       forProvider.manifest = {
+#         apiVersion = "apps/v1"
+#         kind = "DaemonSet"
+#         metadata = {
+#           name = "route-replicator-{}".format(s),
+#           namespace = "kube-system",
+#           labels = {
+#             "component": "route-replicator"
+#             "skycluster.io/pod-type": "route-replicator"
+#             "role": "route-replicator"
+#           },
+#         }
+#         spec = {
+#           selector.matchLabels = {
+#             "name": "route-replicator-{}".format(s)
+#           }
+#           template = {
+#             metadata.labels = {
+#               "name": "route-replicator-{}".format(s)
+#               "role": "route-replicator"
+#             }
+#             spec = {
+#               nodeSelector = {
+#                 "submariner.io/gateway" = "true"
+#               }
+#               hostNetwork = True
+#               restartPolicy = "Always"
+#               containers = [{
+#                 name = "route-replicator"
+#                 image = "alpine:3.18"
+#                 args = ["/bin/sh","-c", _helper_script_route_setup.replace("__POD_CIDR__", _xkubesRefData[s]?.podCidr).replace("__SVC_CIDR__", _xkubesRefData[s]?.serviceCidr)]
+#                 terminationMessagePath = "/dev/termination-log"
+#                 terminationMessagePolicy = "File"
+#                 securityContext = {
+#                   runAsUser = 0
+#                   capabilities = {
+#                     add = ["NET_ADMIN"]
+#                   }
+#                 }
+#               }]              
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
+
+# _helper_remote_secret = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "istio-remote-secret"}
+#       annotations = helper._set_resource_name("remote-secret-{}".format(s))
+#     }
+#     spec =  {
+#       forProvider.manifest = {
+#         apiVersion = "batch/v1"
+#         kind = "Job"
+#         metadata = { 
+#           name = "istio-remote-secret-{}".format(s),
+#           namespace = "skycluster-system",
+#           labels =  {"skycluster.io/pod-type": "istio-remote-secret"},
+#         }
+#         spec = {
+#           completions = 1
+#           backoffLimit = 0
+#           template = {
+#             metadata = {
+#               labels = {
+#                 "name": "istio-remote-secret-{}".format(s)
+#               }
+#             }
+#             spec = {
+#               serviceAccountName: "skycluster-sva"
+#               restartPolicy = "Never"
+#               volumes = [{
+#                   name = "work"
+#                   emptyDir = {}
+#                 }, {
+#                   name = "script"
+#                   configMap = {
+#                     name = "script-kubemesh-setup"
+#                     defaultMode = 0755
+#                   }
+#                 }
+#               ]
+#               containers = [{
+#                   name = "runner"
+#                   image = "etesami/kubectl:latest"
+#                   imagePullPolicy = "IfNotPresent"
+#                   command = ["/bin/bash","-lc","/script/istio-remote-secret.sh"]
+#                   env = [{
+#                       name = "NAMESPACE"
+#                       value = "skycluster-system"
+#                     }, {
+#                       name = "CLUSTER_NAME"
+#                       value = "{}".format(s)
+#                     }, {
+#                       name = "OWNER"
+#                       value = oxr.metadata.name
+#                     }, {
+#                       name = "SCRIPTS_DIR"
+#                       value = "/script"
+#                     }, {
+#                       name = "OWNER_PATCH"
+#                       value = json.encode({
+#                         metadata = {
+#                           ownerReferences = [{
+#                             apiVersion = "skycluster.io/v1alpha1",
+#                             kind = "XKubeMesh",
+#                             name = oxr.metadata.name,
+#                             uid = oxr.metadata.uid,
+#                             controller = True,
+#                             blockOwnerDeletion = True
+#                           }]
+#                         }
+#                       })
+#                     }
+#                   ]
+#                   volumeMounts = [{
+#                       name = "work"
+#                       mountPath = "/work"
+#                     }, {
+#                       name = "script"
+#                       mountPath = "/script"
+#                     }
+#                   ]
+#                 }
+#               ]
+#             }
+#           }
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _k8sProvCfgName
+#       }
+#     }
+#   }
+# }
+
+# _helper_cacerts_pod = lambda s {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"}
+#       annotations = helper._set_resource_name(s)
+#     }
+#     spec =  {
+#       forProvider.manifest = {
+#         apiVersion = "batch/v1"
+#         kind = "Job"
+#         metadata = { 
+#           name = "istio-cacert-{}".format(s),
+#           namespace = "skycluster-system",
+#           labels = {"skycluster.io/pod-type": "istio-cluster-ca-certs"},
+#         }
+#         spec = {
+#           completions = 1
+#           backoffLimit = 0
+#           template = {
+#             metadata = {
+#               labels = {
+#                 "name": "istio-cacert-{}".format(s)
+#               }
+#             }
+#             spec = {
+#               serviceAccountName: "skycluster-sva"
+#               restartPolicy = "Never"
+#               volumes = [{
+#                   name = "work"
+#                   emptyDir = {}
+#                 }, {
+#                   name = "script"
+#                   configMap = {
+#                     name = "script-kubemesh-setup"
+#                     defaultMode = 0755
+#                   }
+#                 }
+#               ]
+#               containers = [{
+#                   name = "runner"
+#                   image = "etesami/kubectl:latest"
+#                   imagePullPolicy = "IfNotPresent"
+#                   command = ["/bin/bash","-lc","/script/istio-cluster-cacerts.sh"]
+#                   env = [{
+#                       name = "NAMESPACE"
+#                       value = "skycluster-system"
+#                     }, {
+#                       name = "ROOT_SECRET_NAME"
+#                       value = "istio-root-ca"
+#                     }, {
+#                       name = "KCFG_SELECTOR"
+#                       value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
+#                     }, {
+#                       name = "OWNER"
+#                       value = oxr.metadata.name
+#                     }, {
+#                       name = "SCRIPTS_DIR"
+#                       value = "/script"
+#                     }, {
+#                       name = "OWNER_PATCH"
+#                       value = json.encode({
+#                         metadata = {
+#                           ownerReferences = [{
+#                             apiVersion = "skycluster.io/v1alpha1",
+#                             kind = "XKubeMesh",
+#                             name = oxr.metadata.name,
+#                             uid = oxr.metadata.uid,
+#                             controller = True,
+#                             blockOwnerDeletion = True
+#                           }]
+#                         }
+#                       })
+#                     }
+#                   ]
+#                   volumeMounts = [{
+#                       name = "work"
+#                       mountPath = "/work"
+#                     }, {
+#                       name = "script"
+#                       mountPath = "/script"
+#                     }
+#                   ]
+#                 }
+#               ]
+#             }
+#           }
           
-        }
-      }
-      providerConfigRef = {
-        name = _k8sProvCfgName
-      }
-      readiness = {
-        policy = "DeriveFromCelQuery"
-        celQuery = "object.status.succeeded == 1"
-      }
-    }
-  }
-}
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _k8sProvCfgName
+#       }
+#       readiness = {
+#         policy = "DeriveFromCelQuery"
+#         celQuery = "object.status.succeeded == 1"
+#       }
+#     }
+#   }
+# }
 
-_helper_submariner_secret = lambda s, psk, apiServer, brokerCA, brokerToken {
-  k8sv1a2.Object{
-    metadata = {
-      annotations = {
-        **helper._set_resource_name("submSec{}".format(s)),
-      } 
-    }
-    spec = {
-      forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Secret"
-        metadata = { 
-          name = "submariner-connection-secret",
-          namespace = "skycluster-system",
-          labels = {
-            "skycluster.io/config-type": "connection-secret"
-          },
-        }
-        type: "Opaque"
-        stringData = {
-          "values.yaml" = json.encode({
-            "ipsec": {
-              "psk": psk
-            },
-            "broker": {
-              "server": apiServer,
-              "namespace": "skycluster-system",
-              "ca" : brokerCA,
-              "token": brokerToken
-            }
-          })
-        }
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.k8s
-      }
-    }
-  }
-}
+# _helper_submariner_secret = lambda s, psk, apiServer, brokerCA, brokerToken {
+#   k8sv1a2.Object{
+#     metadata = {
+#       annotations = {
+#         **helper._set_resource_name("submSec{}".format(s)),
+#       } 
+#     }
+#     spec = {
+#       forProvider.manifest = {
+#         apiVersion = "v1"
+#         kind = "Secret"
+#         metadata = { 
+#           name = "submariner-connection-secret",
+#           namespace = "skycluster-system",
+#           labels = {
+#             "skycluster.io/config-type": "connection-secret"
+#           },
+#         }
+#         type: "Opaque"
+#         stringData = {
+#           "values.yaml" = json.encode({
+#             "ipsec": {
+#               "psk": psk
+#             },
+#             "broker": {
+#               "server": apiServer,
+#               "namespace": "skycluster-system",
+#               "ca" : brokerCA,
+#               "token": brokerToken
+#             }
+#           })
+#         }
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.k8s
+#       }
+#     }
+#   }
+# }
 
-_helper_subm_operator = lambda s, ch, platform {
-  helmv1b1.Release{
-    metadata = {
-      annotations = {
-        **helper._set_resource_name("submOp{}".format(s))
-      }
-    }
-    spec = {
-      forProvider = {
-        chart = {
-          name = ch.name
-          repository = ch.repo
-          version = ch.version
-        }
-        namespace = ch.ns
-        skipCreateNamespace = True
-        valuesFrom = [{
-          secretKeyRef = {
-            # Reference to the local secret
-            key = "values.yaml"
-            name = "submariner-connection-secret"
-            namespace = "skycluster-system"
-          }
-        }]
-        values = {
-          debug = "true",
-          submariner = {
-            serviceDiscovery = "false",
-            cableDriver = "wireguard",
-            clusterId = s,
-            clusterCidr = _xkubesRefData[s]?.podCidr,
-            serviceCidr = _xkubesRefData[s]?.serviceCidr,
-            natEnabled = "true"
-          }
-        }
-        # # disable healthcheck on GCP due to use of calico cni
-        # # which does not have cni with cluster cidr on the host network interface
-        # if platform == "gcp":
-        #   patchesFrom = [{
-        #     configMapKeyRef = {
-        #       key = "patch.yaml"
-        #       name = "submariner-patch"
-        #       namespace = "skycluster-system"
-        #       optional = False
-        #     }
-        #   }]
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[s]?.helm
-      }
-    }
-  }
-}
+# _helper_subm_operator = lambda s, ch, platform {
+#   helmv1b1.Release{
+#     metadata = {
+#       annotations = {
+#         **helper._set_resource_name("submOp{}".format(s))
+#       }
+#     }
+#     spec = {
+#       forProvider = {
+#         chart = {
+#           name = ch.name
+#           repository = ch.repo
+#           version = ch.version
+#         }
+#         namespace = ch.ns
+#         skipCreateNamespace = True
+#         valuesFrom = [{
+#           secretKeyRef = {
+#             # Reference to the local secret
+#             key = "values.yaml"
+#             name = "submariner-connection-secret"
+#             namespace = "skycluster-system"
+#           }
+#         }]
+#         values = {
+#           debug = "true",
+#           submariner = {
+#             serviceDiscovery = "false",
+#             cableDriver = "wireguard",
+#             clusterId = s,
+#             clusterCidr = _xkubesRefData[s]?.podCidr,
+#             serviceCidr = _xkubesRefData[s]?.serviceCidr,
+#             natEnabled = "true"
+#           }
+#         }
+#         # # disable healthcheck on GCP due to use of calico cni
+#         # # which does not have cni with cluster cidr on the host network interface
+#         # if platform == "gcp":
+#         #   patchesFrom = [{
+#         #     configMapKeyRef = {
+#         #       key = "patch.yaml"
+#         #       name = "submariner-patch"
+#         #       namespace = "skycluster-system"
+#         #       optional = False
+#         #     }
+#         #   }]
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[s]?.helm
+#       }
+#     }
+#   }
+# }
 
-_helper_istio_base = lambda s, ch {
-  helmv1b1.Release{
-    metadata = {
-      labels = {
-        "skycluster.io/managed-by": "skycluster",
-      },
-      annotations = {
-        **helper._set_resource_name("istio-base-{}".format(s))
-      }
-    }
-    spec = {
-      forProvider = {
-        chart = {
-          name = ch.name
-          repository = ch.repo
-          version = ch.version
-        }
-        namespace = ch.ns
-        skipCreateNamespace = False
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps?[s]?.helm
-      }
-    }
-  }
-}
+# _helper_istio_base = lambda s, ch {
+#   helmv1b1.Release{
+#     metadata = {
+#       labels = {
+#         "skycluster.io/managed-by": "skycluster",
+#       },
+#       annotations = {
+#         **helper._set_resource_name("istio-base-{}".format(s))
+#       }
+#     }
+#     spec = {
+#       forProvider = {
+#         chart = {
+#           name = ch.name
+#           repository = ch.repo
+#           version = ch.version
+#         }
+#         namespace = ch.ns
+#         skipCreateNamespace = False
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps?[s]?.helm
+#       }
+#     }
+#   }
+# }
 
-_helper_istio_operator = lambda s, ch {
-  helmv1b1.Release{
-    metadata = {
-      labels = {
-        "skycluster.io/managed-by": "skycluster",
-      },
-      annotations = {
-        **helper._set_resource_name("istiod-{}".format(s))
-      }
-    }
-    spec = {
-      forProvider = {
-        chart = {
-          name = ch.name
-          repository = ch.repo
-          version = ch.version
-        }
-        set = [
-          {
-            name = "global.meshID"
-            value = "mesh1"
-          },
-          {
-            name = "global.network"
-            value = "network1"
-          },
-          {
-            name = "global.multiCluster.clusterName"
-            value = s
-          }
-        ]
-        namespace = "istio-system"
-        skipCreateNamespace = False
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps?[s]?.helm
-      }
-    }
-  }
-}
+# _helper_istio_operator = lambda s, ch {
+#   helmv1b1.Release{
+#     metadata = {
+#       labels = {
+#         "skycluster.io/managed-by": "skycluster",
+#       },
+#       annotations = {
+#         **helper._set_resource_name("istiod-{}".format(s))
+#       }
+#     }
+#     spec = {
+#       forProvider = {
+#         chart = {
+#           name = ch.name
+#           repository = ch.repo
+#           version = ch.version
+#         }
+#         set = [
+#           {
+#             name = "global.meshID"
+#             value = "mesh1"
+#           },
+#           {
+#             name = "global.network"
+#             value = "network1"
+#           },
+#           {
+#             name = "global.multiCluster.clusterName"
+#             value = s
+#           }
+#         ]
+#         namespace = "istio-system"
+#         skipCreateNamespace = False
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps?[s]?.helm
+#       }
+#     }
+#   }
+# }
 
-_helper_istio_remote_secret = lambda s, t {
-  k8sv1a2.Object{
-    metadata = {
-      labels = {"skycluster.io/secret-type": "remote"}
-      annotations = helper._set_resource_name("istio-rsec-{}-{}".format(s, t)) | {
-        "skycluster.io/from-cluster": s,
-        "skycluster.io/to-cluster": t
-      }
-    }
-    spec = {
-      forProvider.manifest = {
-        apiVersion = "v1"
-        kind = "Secret"
-        metadata = {
-          name = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.name
-          namespace = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.namespace
-          labels = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.labels | {
-            "skycluster.io/secret-type": "remote"
-          }
-          annotations = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.annotations
-        }
-        stringData = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.stringData
-      }
-      providerConfigRef = {
-        name = _remoteProviderCfgsMaps[t]?.k8s
-      }
-    }
-  }
-}
+# _helper_istio_remote_secret = lambda s, t {
+#   k8sv1a2.Object{
+#     metadata = {
+#       labels = {"skycluster.io/secret-type": "remote"}
+#       annotations = helper._set_resource_name("istio-rsec-{}-{}".format(s, t)) | {
+#         "skycluster.io/from-cluster": s,
+#         "skycluster.io/to-cluster": t
+#       }
+#     }
+#     spec = {
+#       forProvider.manifest = {
+#         apiVersion = "v1"
+#         kind = "Secret"
+#         metadata = {
+#           name = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.name
+#           namespace = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.namespace
+#           labels = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.labels | {
+#             "skycluster.io/secret-type": "remote"
+#           }
+#           annotations = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.annotations
+#         }
+#         stringData = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.stringData
+#       }
+#       providerConfigRef = {
+#         name = _remoteProviderCfgsMaps[t]?.k8s
+#       }
+#     }
+#   }
+# }
 
 
-_helper_script_route_setup = """\
-#!/bin/sh
-set -eu
+# _helper_script_route_setup = """\
+# #!/bin/sh
+# set -eu
 
-apk add --no-cache iproute2 >/dev/null 2>&1 || true
+# apk add --no-cache iproute2 >/dev/null 2>&1 || true
 
-TABLE_NAME=skycluster
-TABLE_ID=200
-IFF=submariner
-PRIO=2000
+# TABLE_NAME=skycluster
+# TABLE_ID=200
+# IFF=submariner
+# PRIO=2000
 
-CIDR1=__POD_CIDR__
-CIDR2=__SVC_CIDR__
+# CIDR1=__POD_CIDR__
+# CIDR2=__SVC_CIDR__
 
-# ensure table mapping exists in /etc/iproute2/rt_tables
-if ! grep -qE "^[[:space:]]*$TABLE_ID[[:space:]]+$TABLE_NAME$" /etc/iproute2/rt_tables; then
-  echo "$TABLE_ID $TABLE_NAME" >> /etc/iproute2/rt_tables
-fi
+# # ensure table mapping exists in /etc/iproute2/rt_tables
+# if ! grep -qE "^[[:space:]]*$TABLE_ID[[:space:]]+$TABLE_NAME$" /etc/iproute2/rt_tables; then
+#   echo "$TABLE_ID $TABLE_NAME" >> /etc/iproute2/rt_tables
+# fi
 
-# ensure rule for each CIDR
-for cidr in "$CIDR1" "$CIDR2"; do
-  if ! ip rule show | grep -q -E "iif $IFF.*to +$cidr.*lookup $TABLE_NAME|to +$cidr.*iif $IFF.*lookup $TABLE_NAME"; then
-    ip rule add iif "$IFF" to "$cidr" lookup "$TABLE_NAME" priority "$PRIO" || true
-  fi
-done
+# # ensure rule for each CIDR
+# for cidr in "$CIDR1" "$CIDR2"; do
+#   if ! ip rule show | grep -q -E "iif $IFF.*to +$cidr.*lookup $TABLE_NAME|to +$cidr.*iif $IFF.*lookup $TABLE_NAME"; then
+#     ip rule add iif "$IFF" to "$cidr" lookup "$TABLE_NAME" priority "$PRIO" || true
+#   fi
+# done
 
-# replicate main table (excluding default) into the skycluster table continuously
-while true; do
-  ip route flush table "$TABLE_NAME" 2>/dev/null || true
-  ip route show table main | grep -v '^default' | while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    ip route add table "$TABLE_NAME" $line 2>/dev/null || true
-  done
-  sleep 10
-done
-"""
+# # replicate main table (excluding default) into the skycluster table continuously
+# while true; do
+#   ip route flush table "$TABLE_NAME" 2>/dev/null || true
+#   ip route show table main | grep -v '^default' | while IFS= read -r line; do
+#     [ -z "$line" ] && continue
+#     ip route add table "$TABLE_NAME" $line 2>/dev/null || true
+#   done
+#   sleep 10
+# done
+# """
 
-_helper_script_src_dst_check = """\
-#!/bin/sh
-set -e
+# _helper_script_src_dst_check = """\
+# #!/bin/sh
+# set -e
 
-TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
-  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" --connect-timeout 5 -m 5)
-if [ -z "$TOKEN" ]; then
-  echo "Failed to get AWS metadata token"
-  exit 1
-fi
+# TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+#   -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" --connect-timeout 5 -m 5)
+# if [ -z "$TOKEN" ]; then
+#   echo "Failed to get AWS metadata token"
+#   exit 1
+# fi
 
-# use token to get instance-id
-INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
-if [ -z "$INSTANCE_ID" ]; then
-  echo "Failed to get instance ID"
-  exit 1
-fi
+# # use token to get instance-id
+# INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+# if [ -z "$INSTANCE_ID" ]; then
+#   echo "Failed to get instance ID"
+#   exit 1
+# fi
 
-echo "Instance ID: $INSTANCE_ID"
+# echo "Instance ID: $INSTANCE_ID"
 
-while true; do
-  ENI_IDS=$(aws ec2 describe-instances \
-    --instance-ids "$INSTANCE_ID" \
-    --query "Reservations[].Instances[].NetworkInterfaces[].NetworkInterfaceId" \
-    --output text)
+# while true; do
+#   ENI_IDS=$(aws ec2 describe-instances \
+#     --instance-ids "$INSTANCE_ID" \
+#     --query "Reservations[].Instances[].NetworkInterfaces[].NetworkInterfaceId" \
+#     --output text)
 
-  for eni in $ENI_IDS; do
-    echo "Disabling source-dest-check on ENI: $eni"
-    aws ec2 modify-network-interface-attribute \
-      --network-interface-id "$eni" \
-      --no-source-dest-check || true
-  done
+#   for eni in $ENI_IDS; do
+#     echo "Disabling source-dest-check on ENI: $eni"
+#     aws ec2 modify-network-interface-attribute \
+#       --network-interface-id "$eni" \
+#       --no-source-dest-check || true
+#   done
 
-  echo "Iteration complete. Sleeping 60 seconds..."
-  sleep 60
-done
-"""
+#   echo "Iteration complete. Sleeping 60 seconds..."
+#   sleep 60
+# done
+# """
 
-_helper_sync_table_2_with_main = """\
-#!/usr/bin/env bash
-set -euo pipefail
+# _helper_sync_table_2_with_main = """\
+# #!/usr/bin/env bash
+# set -euo pipefail
 
-TABLE_MAIN=main
-TABLE_TARGET=2
-MATCH_REGEX='vx-submariner|via 240\.'
-SLEEP=10
+# TABLE_MAIN=main
+# TABLE_TARGET=2
+# MATCH_REGEX='vx-submariner|via 240\.'
+# SLEEP=10
 
-log() {
-  echo "$(date -Is) $*"
-}
+# log() {
+#   echo "$(date -Is) $*"
+# }
 
-sync_routes() {
-  tmp_main=$(mktemp)
-  tmp_target=$(mktemp)
-  tmp_main_prefixes=$(mktemp)
-  tmp_target_prefixes=$(mktemp)
+# sync_routes() {
+#   tmp_main=$(mktemp)
+#   tmp_target=$(mktemp)
+#   tmp_main_prefixes=$(mktemp)
+#   tmp_target_prefixes=$(mktemp)
 
-  ip -4 route show table $TABLE_MAIN | grep -E "$MATCH_REGEX" > $tmp_main 2>/dev/null || true
-  awk '{print $1}' $tmp_main > $tmp_main_prefixes
+#   ip -4 route show table $TABLE_MAIN | grep -E "$MATCH_REGEX" > $tmp_main 2>/dev/null || true
+#   awk '{print $1}' $tmp_main > $tmp_main_prefixes
 
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ -z "$line" ]; then
-      continue
-    fi
+#   while IFS= read -r line || [ -n "$line" ]; do
+#     if [ -z "$line" ]; then
+#       continue
+#     fi
 
-    log "Processing: $line"
+#     log "Processing: $line"
 
-    # Primary sanitize: remove "proto static"
-    sanitized=$(printf '%s\n' "$line" | sed -E 's/ proto static//g')
+#     # Primary sanitize: remove "proto static"
+#     sanitized=$(printf '%s\n' "$line" | sed -E 's/ proto static//g')
 
-    log "Trying: ip route replace $sanitized table $TABLE_TARGET"
-    if ip route replace $sanitized table $TABLE_TARGET 2>/dev/null; then
-      continue
-    fi
+#     log "Trying: ip route replace $sanitized table $TABLE_TARGET"
+#     if ip route replace $sanitized table $TABLE_TARGET 2>/dev/null; then
+#       continue
+#     fi
 
-    # Fallback sanitize: remove other kernel tokens that break "ip route replace"
-    sanitized2=$(printf '%s\n' "$sanitized" | sed -E 's/ proto kernel//g; s/ scope link//g; s/ src [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+//g')
+#     # Fallback sanitize: remove other kernel tokens that break "ip route replace"
+#     sanitized2=$(printf '%s\n' "$sanitized" | sed -E 's/ proto kernel//g; s/ scope link//g; s/ src [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+//g')
 
-    log "Trying: ip route replace $sanitized2 table $TABLE_TARGET"
-    if ip route replace $sanitized2 table $TABLE_TARGET 2>/dev/null; then
-      continue
-    fi
+#     log "Trying: ip route replace $sanitized2 table $TABLE_TARGET"
+#     if ip route replace $sanitized2 table $TABLE_TARGET 2>/dev/null; then
+#       continue
+#     fi
 
-    log "ip route replace failed for lines: original='$line' sanitized='$sanitized' fallback='$sanitized2'"
-  done < $tmp_main
+#     log "ip route replace failed for lines: original='$line' sanitized='$sanitized' fallback='$sanitized2'"
+#   done < $tmp_main
 
-  # Cleanup stale entries from target table
-  ip -4 route show table $TABLE_TARGET | grep -E "$MATCH_REGEX" > $tmp_target 2>/dev/null || true
-  awk '{print $1}' $tmp_target > $tmp_target_prefixes
+#   # Cleanup stale entries from target table
+#   ip -4 route show table $TABLE_TARGET | grep -E "$MATCH_REGEX" > $tmp_target 2>/dev/null || true
+#   awk '{print $1}' $tmp_target > $tmp_target_prefixes
 
-  while IFS= read -r tprefix || [ -n "$tprefix" ]; do
-    if [ -z "$tprefix" ]; then
-      continue
-    fi
-    if ! grep -Fxq "$tprefix" $tmp_main_prefixes; then
-      log "Deleting stale route from table $TABLE_TARGET: $tprefix"
-      ip route del "$tprefix" table $TABLE_TARGET 2>/dev/null || log "ip route del failed for: $tprefix"
-    fi
-  done < $tmp_target_prefixes
+#   while IFS= read -r tprefix || [ -n "$tprefix" ]; do
+#     if [ -z "$tprefix" ]; then
+#       continue
+#     fi
+#     if ! grep -Fxq "$tprefix" $tmp_main_prefixes; then
+#       log "Deleting stale route from table $TABLE_TARGET: $tprefix"
+#       ip route del "$tprefix" table $TABLE_TARGET 2>/dev/null || log "ip route del failed for: $tprefix"
+#     fi
+#   done < $tmp_target_prefixes
 
-  rm -f $tmp_main $tmp_target $tmp_main_prefixes $tmp_target_prefixes
-}
+#   rm -f $tmp_main $tmp_target $tmp_main_prefixes $tmp_target_prefixes
+# }
 
-log "Starting submariner route sync (main -> table $TABLE_TARGET), interval $SLEEP"
-while true; do
-  if ! sync_routes; then
-    log "sync error"
-  fi
-  sleep $SLEEP
-done
-"""
+# log "Starting submariner route sync (main -> table $TABLE_TARGET), interval $SLEEP"
+# while true; do
+#   if ! sync_routes; then
+#     log "sync error"
+#   fi
+#   sleep $SLEEP
+# done
+# """

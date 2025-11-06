@@ -1,0 +1,16 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XMeshSetup
+metadata:
+  name: example
+spec: 
+  clusterNames:
+    - example-kube-os-scinet
+
+  localCluster:
+    podCidr: "10"
+    serviceCidr: "10"
+status:
+  clusters:
+    - nameRef: "cluster1"
+      status: "Ready"
+  log: ""

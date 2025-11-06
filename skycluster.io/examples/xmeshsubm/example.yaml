@@ -1,0 +1,5 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XMeshSubm
+metadata:
+  name: example
+spec: {}

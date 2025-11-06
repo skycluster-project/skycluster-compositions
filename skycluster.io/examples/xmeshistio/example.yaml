@@ -1,0 +1,5 @@
+apiVersion: skycluster.io/v1alpha1
+kind: XMeshIstio
+metadata:
+  name: example
+spec: {}

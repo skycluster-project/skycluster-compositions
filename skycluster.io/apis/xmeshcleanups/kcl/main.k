@@ -60,6 +60,8 @@ _remoteSecretsMap: {str:{str:any}} = {
       if cn == s.Resource?.metadata?.labels?["skycluster.io/cluster-name"]
 } if _remoteSecrets else Undefined
 
+# TODO: When the kubeconfig file is refreshed/rotated, 
+# the current stored kubeconfig is not valid anymore.
 _remoteK8SKubeconfigs = {
   cn = {
     kubeconfig = p?.Resource?.data?["kubeconfig"]
@@ -277,6 +279,7 @@ _helper_cleanup_pod = lambda s, c, kc, k8scfg {
           },
         } 
         spec = {
+          ttlSecondsAfterFinished = 120
           completions = 1
           backoffLimit = 0
           if ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template:

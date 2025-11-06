@@ -347,6 +347,7 @@ spec:
                       },
                     } 
                     spec = {
+                      ttlSecondsAfterFinished = 120
                       completions = 1
                       backoffLimit = 0
                       if ocds?["cl-{}-{}".format(c.label, s)]?.Resource?.spec?.forProvider?.manifest?.spec?.template:
