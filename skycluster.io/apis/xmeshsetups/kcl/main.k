@@ -184,7 +184,7 @@ extraItems = {
         kind: "Secret",
         matchLabels: {
           "skycluster.io/managed-by": "skycluster",
-          "skycluster.io/secret-type": "k8s-connection-data"
+          "skycluster.io/secret-type": "skycluster-kubeconfig"
         }
     }}
     **{"cmsStatus" = {

@@ -204,7 +204,7 @@ _helper_root_ca = lambda kc {
                       value = "istio-root-ca"
                     }, {
                       name = "KCFG_SELECTOR"
-                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
+                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=skycluster-kubeconfig"
                     }, {
                       name = "KUBECONFIG_B64"
                       value = kc

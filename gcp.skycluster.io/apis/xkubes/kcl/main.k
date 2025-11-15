@@ -506,7 +506,7 @@ _helper_k8s_secret = lambda s, kubeconf, pk {
             labels = {
               **oxr.metadata?.labels,
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-              "skycluster.io/secret-type" = "k8s-connection-data",
+              "skycluster.io/secret-type" = "skycluster-kubeconfig",
               "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "gcp"
             },

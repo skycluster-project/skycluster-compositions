@@ -98,7 +98,7 @@ spec:
             #  List all xkube clusters (assume names are given by user)
             #
             #  Construct Job to generates certificates and remote secrets for all clusters (it automatically 
-            #    fetches the secrets by labels (skycluster.io/secret-type=k8s-connection-data)
+            #    fetches the secrets by labels (skycluster.io/secret-type=skycluster-kubeconfig)
             #
             #  Once done successfully (conditional), get all generated secrets (using labels
             #    skycluster.io/secret-type=cluster-cacert, compare label
@@ -281,7 +281,7 @@ spec:
 
             #
             # Job: generating ca certs for each cluster, it generates certs based on secrets
-            # filtered by skycluster.io/secret-type=k8s-connection-data
+            # filtered by skycluster.io/secret-type=skycluster-kubeconfig
             # It also creates remote-secret for each cluster
             #
             # We need to recreate this pod if the list of clusters are modified
@@ -419,7 +419,7 @@ spec:
                     kind: "Secret",
                     matchLabels: {
                       "skycluster.io/managed-by": "skycluster",
-                      "skycluster.io/secret-type": "k8s-connection-data"
+                      "skycluster.io/secret-type": "skycluster-kubeconfig"
                     }
                 }}
                 **{"cmsStatus" = {
@@ -588,7 +588,7 @@ spec:
                                   value = "istio-root-ca"
                                 }, {
                                   name = "KCFG_SELECTOR"
-                                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
+                                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=skycluster-kubeconfig"
                                 }, {
                                   name = "OWNER"
                                   value = oxr.metadata.name
