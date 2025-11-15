@@ -88,7 +88,7 @@ assert oxr.spec?.localCluster?.serviceCidr, "Service CIDR must be provided in th
 
 # Default (local) provider config
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
-_k8sMgmtClusterName = "k8s-skycluster-management"
+_k8sMgmtClusterName = "skycluster-management"
 
 _clusterNames = oxr.spec?.clusterNames or []
 assert len(_clusterNames) > 0, "At least one cluster name must be provided in the spec.clusters"
@@ -163,7 +163,7 @@ _items = []
 #
 # Ensure namespace istio-system and skycluster-system exists in the remote clusters and local
 # Note: provider config for local cluster is retrieved by same filter:
-# skycluster.io/config-type = k8s-connection-data through the extraResources
+# skycluster.io/config-type = skycluster-data through the extraResources
 #
 _items += [
   k8sv1a2.Object{

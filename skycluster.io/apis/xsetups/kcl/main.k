@@ -35,15 +35,6 @@ _ns = oxr.spec?.namespace or "skycluster-system"
 _apiServer = oxr.spec?.apiServer or Undefined
 assert _apiServer is not Undefined, "Broker public IP and port must be provided"
 
-_default_labels = {
-  # **oxr.metadata?.labels,
-  "skycluster.io/managed-by" = "skycluster"
-}
-
-_default_annotations = {
-  # **oxr.metadata?.annotations,
-}
-
 # Helm Provider Config
 _items = [
   _helper_provider_cfg_helm()
@@ -88,7 +79,7 @@ _items += [
 #
 # Istio pre setup: generate root cacerts,
 # it also generates ca cert for the local management cluster and
-# store them in a secret with name k8s-skycluster-management-cacerts
+# store them in a secret with name skycluster-management-cacerts
 # We fetch the generated secret for istio root-ca using extraResource
 #
 _items += [ _helper_root_ca(_kubeconfig_B64) ] if _k8sProvCfgName or ocds?["caCerts"] else []
@@ -172,6 +163,7 @@ _helper_root_ca = lambda kc {
           labels = {"skycluster.io/job-type": "istio-ca-certs"},
         }
         spec = {
+          ttlSecondsAfterFinished = 60
           backoffLimit = 0
           template = {
             metadata.labels = {
@@ -227,6 +219,10 @@ _helper_root_ca = lambda kc {
           }
         }
       }
+      readiness = {
+        policy = "DeriveFromCelQuery"
+        celQuery = "object.status.succeeded == 1"
+      }
       providerConfigRef = {
         name = _k8sProvCfgName
       }
@@ -262,7 +258,6 @@ _helper_headscale_server = lambda {
   # Init and main headscale-server containers
   k8sv1alpha2.Object{
     metadata = {
-      labels = _default_labels
       annotations = {
         **helper._set_resource_name("headscaleServerDeployment")
       }
@@ -385,7 +380,6 @@ _helper_headscale_service = lambda {
   # Service for headscale-server
   k8sv1alpha2.Object{
     metadata = {
-      labels = _default_labels
       annotations = {
         **helper._set_resource_name("headscaleServerService")
       }
@@ -421,7 +415,6 @@ _helper_headscale_service = lambda {
 _helper_headscale_generate_ca = lambda {
   k8sv1alpha2.Object{
     metadata = {
-      labels = _default_labels
       annotations = {
         **helper._set_resource_name("headscaleCertGenPod")
       }
@@ -438,6 +431,7 @@ _helper_headscale_generate_ca = lambda {
           },
         }
         spec = {
+          ttlSecondsAfterFinished = 60
           backoffLimit = 0
           parallelism = 1        
           completions = 1
@@ -508,11 +502,9 @@ _helper_submariner_broker = lambda {
   helmv1beta1.Release{
     metadata = {
       labels = {
-        **_default_labels,
         "skycluster.io/managed-by": "skycluster",
       },
       annotations = {
-        **_default_annotations,
         **helper._set_resource_name("submarinerBrokerRelease")
       }
     }
@@ -536,12 +528,11 @@ _helper_submariner_broker = lambda {
 _helper_provider_cfg_k8s = lambda {
   k8sv1alpha1.ProviderConfig{
     metadata = {
-      labels = _default_labels | {
-        "skycluster.io/config-type" = "k8s-connection-data"
-        "skycluster.io/cluster-name" = "k8s-skycluster-management"
+      labels = {
+        "skycluster.io/config-type" = "skycluster-data"
+        "skycluster.io/cluster-name" = "skycluster-management"
       }
       annotations = {
-          **_default_annotations,
           **helper._set_resource_name("k8sConfig"),
           "krm.kcl.dev/ready": "True"
       }
@@ -557,12 +548,11 @@ _helper_provider_cfg_k8s = lambda {
 _helper_provider_cfg_helm = lambda {
   helmv1beta1.ProviderConfig{
     metadata = {
-      labels = _default_labels | {
+      labels = {
         "skycluster.io/config-type" = "helm-connection-data"
-        "skycluster.io/cluster-name" = "k8s-skycluster-management"
+        "skycluster.io/cluster-name" = "skycluster-management"
       }
       annotations = {
-          **_default_annotations,
           **helper._set_resource_name("helmConfig"),
           "krm.kcl.dev/ready": "True"
       }

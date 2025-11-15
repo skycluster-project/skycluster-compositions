@@ -414,7 +414,7 @@ _items += [
             namespace = _ns,
             labels = {
               "skycluster.io/managed-by" = "skycluster"
-              "skycluster.io/config-type" = "k8s-connection-data"
+              "skycluster.io/config-type" = "skycluster-data"
               "skycluster.io/cluster-name" = _oxrName
             },
           },

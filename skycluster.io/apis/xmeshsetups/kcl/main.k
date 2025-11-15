@@ -38,7 +38,7 @@ assert oxr.spec?.localCluster?.serviceCidr, "Service CIDR must be provided in th
 
 # Default (local) provider config
 _k8sProvCfgName = _xsetup.status?.providerConfig?.kubernetes?.name or Undefined
-_k8sMgmtClusterName = "k8s-skycluster-management"
+_k8sMgmtClusterName = "skycluster-management"
 
 _clusterNames = oxr.spec?.clusterNames or []
 assert len(_clusterNames) > 0, "At least one cluster name must be provided in the spec.clusters"
