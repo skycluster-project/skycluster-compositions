@@ -29,7 +29,7 @@ spec:
                     value: skycluster
                   - key: skycluster.io/config-type
                     type: Value
-                    value: skycluster-kubeconfig
+                    value: k8s-connection-data
             - apiVersion: helm.crossplane.io/v1beta1
               kind: ProviderConfig
               into: ClusterHelmProviderConfigs
@@ -257,7 +257,7 @@ spec:
                   providerConfigRef.name = _remoteProviderCfgsMaps[s].k8s
                 }
               } for s in _clusterNamesRef for ns in ["istio-system", "skycluster-system", "submariner-operator"]
-            ]
+            ] if (_remoteProviderCfgsMaps) or ocds?["ns-{}-{}".format(s,ns)] else []
 
 
             #
@@ -419,7 +419,7 @@ spec:
                     kind: "Secret",
                     matchLabels: {
                       "skycluster.io/managed-by": "skycluster",
-                      "skycluster.io/secret-type": "skycluster-kubeconfig"
+                      "skycluster.io/secret-type": "k8s-connection-data"
                     }
                 }}
                 **{"cmsStatus" = {
@@ -588,7 +588,7 @@ spec:
                                   value = "istio-root-ca"
                                 }, {
                                   name = "KCFG_SELECTOR"
-                                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=skycluster-kubeconfig"
+                                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
                                 }, {
                                   name = "OWNER"
                                   value = oxr.metadata.name

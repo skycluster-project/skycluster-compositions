@@ -109,6 +109,7 @@ _items += [{
     applicationId = oxr.spec?.applicationId or Undefined
     nodeCidr = oxr.spec?.nodeCidr or Undefined
     podCidr = oxr.spec?.podCidr or Undefined
+    serviceCidr = oxr.spec?.serviceCidr or Undefined
 
     nodeGroups = [
       *[{

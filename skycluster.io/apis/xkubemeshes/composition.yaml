@@ -29,7 +29,7 @@ spec:
                     value: skycluster
                   - key: skycluster.io/config-type
                     type: Value
-                    value: skycluster-kubeconfig
+                    value: k8s-connection-data
             - apiVersion: helm.crossplane.io/v1beta1
               kind: ProviderConfig
               into: ClusterHelmProviderConfigs
@@ -333,7 +333,7 @@ spec:
                     kind: "Secret",
                     matchLabels: {
                       "skycluster.io/managed-by": "skycluster",
-                      "skycluster.io/secret-type": "skycluster-kubeconfig"
+                      "skycluster.io/secret-type": "k8s-connection-data"
                     }
                 }}
                 **{"cmsStatus" = {

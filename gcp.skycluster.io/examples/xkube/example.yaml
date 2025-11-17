@@ -9,9 +9,11 @@ metadata:
     skycluster.io/provider-zone: us-east1-a
 spec: 
   applicationId: example-app
-  nodeCidr: 10.17.0.0/17
+  # assuming there is main subnet range defined in xprovider resource as 10.17.0.0/18
+  nodeCidr: 10.17.64.0/18	 # as part of the main subnet cidr range
   podCidr: 
-    cidr: 10.17.0.0/17
+    cidr: 10.17.128.0/18 # secondary range for pods, must not overlap with nodeCidr
+  serviceCidr: 10.255.0.0/16
     
   # Principal ARN for the IAM role that has permissions to manage the cluster
   # The purpose of this role is to allow the user assuming the role to 

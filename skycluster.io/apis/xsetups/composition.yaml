@@ -54,7 +54,7 @@ spec:
                     value: skycluster
                   - key: skycluster.io/secret-type
                     type: Value
-                    value: skycluster-kubeconfig
+                    value: k8s-connection-data
                   - key: skycluster.io/cluster-name
                     type: Value
                     value: skycluster-management
@@ -251,7 +251,6 @@ spec:
                       labels = {"skycluster.io/job-type": "istio-ca-certs"},
                     }
                     spec = {
-                      ttlSecondsAfterFinished = 60
                       backoffLimit = 0
                       template = {
                         metadata.labels = {
@@ -284,7 +283,7 @@ spec:
                                   value = "istio-root-ca"
                                 }, {
                                   name = "KCFG_SELECTOR"
-                                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=skycluster-kubeconfig"
+                                  value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
                                 }, {
                                   name = "KUBECONFIG_B64"
                                   value = kc
@@ -519,7 +518,6 @@ spec:
                       },
                     }
                     spec = {
-                      ttlSecondsAfterFinished = 60
                       backoffLimit = 0
                       parallelism = 1        
                       completions = 1
@@ -617,7 +615,8 @@ spec:
               k8sv1alpha1.ProviderConfig{
                 metadata = {
                   labels = {
-                    "skycluster.io/config-type" = "skycluster-data"
+                    "skycluster.io/managed-by": "skycluster",
+                    "skycluster.io/config-type" = "k8s-connection-data"
                     "skycluster.io/cluster-name" = "skycluster-management"
                   }
                   annotations = {
@@ -637,6 +636,7 @@ spec:
               helmv1beta1.ProviderConfig{
                 metadata = {
                   labels = {
+                    "skycluster.io/managed-by": "skycluster",
                     "skycluster.io/config-type" = "helm-connection-data"
                     "skycluster.io/cluster-name" = "skycluster-management"
                   }

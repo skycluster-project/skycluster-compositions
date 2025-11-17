@@ -324,8 +324,8 @@ dxr = {
     ]
     if _publicAddress or _privateAddress:
       gateway = {
-        publicIp = _publicAddress
-        privateIp = _privateAddress
+        publicIp = _publicAddress or Undefined
+        privateIp = _privateAddress or Undefined
       }
     if _provSettings.metadata?.labels?["skycluster.io/provider-profile"]:
       providerProfileName = _provSettings.metadata?.labels["skycluster.io/provider-profile"]

@@ -70,7 +70,6 @@ spec:
           dependencies: |
             helper = { git = "https://github.com/skycluster-project/kcl-modules",version = "0.0.1" }
           source: |-
-            import json
             import helper.v1alpha1.main as helper
 
             oxr = option("params").oxr # observed composite resource
@@ -182,6 +181,7 @@ spec:
                 applicationId = oxr.spec?.applicationId or Undefined
                 nodeCidr = oxr.spec?.nodeCidr or Undefined
                 podCidr = oxr.spec?.podCidr or Undefined
+                serviceCidr = oxr.spec?.serviceCidr or Undefined
 
                 nodeGroups = [
                   *[{

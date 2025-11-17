@@ -189,7 +189,7 @@ _items += [
             namespace = _ns,
             labels = {
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-              "skycluster.io/secret-type" = "skycluster-kubeconfig",
+              "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "aws"
             },

@@ -290,7 +290,7 @@ extraItems = {
         kind: "Secret",
         matchLabels: {
           "skycluster.io/managed-by": "skycluster",
-          "skycluster.io/secret-type": "skycluster-kubeconfig"
+          "skycluster.io/secret-type": "k8s-connection-data"
         }
     }}
     **{"cmsStatus" = {
@@ -460,7 +460,7 @@ _helper_cacerts_pod = lambda s {
                       value = "istio-root-ca"
                     }, {
                       name = "KCFG_SELECTOR"
-                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=skycluster-kubeconfig"
+                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
                     }, {
                       name = "OWNER"
                       value = oxr.metadata.name

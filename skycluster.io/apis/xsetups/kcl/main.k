@@ -163,7 +163,6 @@ _helper_root_ca = lambda kc {
           labels = {"skycluster.io/job-type": "istio-ca-certs"},
         }
         spec = {
-          ttlSecondsAfterFinished = 60
           backoffLimit = 0
           template = {
             metadata.labels = {
@@ -196,7 +195,7 @@ _helper_root_ca = lambda kc {
                       value = "istio-root-ca"
                     }, {
                       name = "KCFG_SELECTOR"
-                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=skycluster-kubeconfig"
+                      value = "skycluster.io/managed-by=skycluster,skycluster.io/secret-type=k8s-connection-data"
                     }, {
                       name = "KUBECONFIG_B64"
                       value = kc
@@ -431,7 +430,6 @@ _helper_headscale_generate_ca = lambda {
           },
         }
         spec = {
-          ttlSecondsAfterFinished = 60
           backoffLimit = 0
           parallelism = 1        
           completions = 1
@@ -529,7 +527,8 @@ _helper_provider_cfg_k8s = lambda {
   k8sv1alpha1.ProviderConfig{
     metadata = {
       labels = {
-        "skycluster.io/config-type" = "skycluster-data"
+        "skycluster.io/managed-by": "skycluster",
+        "skycluster.io/config-type" = "k8s-connection-data"
         "skycluster.io/cluster-name" = "skycluster-management"
       }
       annotations = {
@@ -549,6 +548,7 @@ _helper_provider_cfg_helm = lambda {
   helmv1beta1.ProviderConfig{
     metadata = {
       labels = {
+        "skycluster.io/managed-by": "skycluster",
         "skycluster.io/config-type" = "helm-connection-data"
         "skycluster.io/cluster-name" = "skycluster-management"
       }

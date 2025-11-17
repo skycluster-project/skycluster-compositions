@@ -366,7 +366,7 @@ _helper_cluster_secret = lambda s, PubIp, PrivIp, kubecfgB64, token {
             namespace = _ns,
             labels = {
               "skycluster.io/managed-by" = "skycluster",
-              "skycluster.io/secret-type" = "skycluster-kubeconfig",
+              "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = oxr.metadata.name,
               "skycluster.io/provider-platform" = "baremetal"
             },
@@ -416,7 +416,7 @@ _helper_cluster_k8s_provider_cfg = lambda s, secretName {
             namespace = _ns,
             labels = {
               "skycluster.io/managed-by" = "skycluster"
-              "skycluster.io/config-type" = "skycluster-data"
+              "skycluster.io/config-type" = "k8s-connection-data"
               "skycluster.io/cluster-name" = oxr.metadata.name
             },
           },

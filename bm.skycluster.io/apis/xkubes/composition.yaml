@@ -479,7 +479,7 @@ spec:
                         namespace = _ns,
                         labels = {
                           "skycluster.io/managed-by" = "skycluster",
-                          "skycluster.io/secret-type" = "skycluster-kubeconfig",
+                          "skycluster.io/secret-type" = "k8s-connection-data",
                           "skycluster.io/cluster-name" = oxr.metadata.name,
                           "skycluster.io/provider-platform" = "baremetal"
                         },
@@ -529,7 +529,7 @@ spec:
                         namespace = _ns,
                         labels = {
                           "skycluster.io/managed-by" = "skycluster"
-                          "skycluster.io/config-type" = "skycluster-data"
+                          "skycluster.io/config-type" = "k8s-connection-data"
                           "skycluster.io/cluster-name" = oxr.metadata.name
                         },
                       },
