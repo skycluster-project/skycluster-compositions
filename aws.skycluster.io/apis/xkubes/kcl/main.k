@@ -252,7 +252,6 @@ _items += [
       }
       annotations = {
         **helper._set_resource_name("secGroupRuleUdp{}-{}-{}".format(_i, port.fromPort, port.toPort)),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -517,7 +516,6 @@ _helper_access_policy_assoc = lambda arn {
       }
       annotations = {
         **helper._set_resource_name(crypto.sha256("apc{}".format(arn))),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -551,7 +549,6 @@ _helper_access_entry = lambda arn {
       }
       annotations = {
         **helper._set_resource_name(crypto.sha256("accEntry{}".format(arn))),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -576,7 +573,6 @@ _helper_role = lambda s {
       }
       annotations = {
         **helper._set_resource_name(s),
-        **helper._is_paused_label(oxr.metadata.labels)
       }
     }
     spec: _defaults | {
@@ -771,7 +767,6 @@ _helper_subnet = lambda i, s {
       }
       annotations = {
         **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -842,7 +837,6 @@ _helper_route_table = lambda t {
       }
       annotations = {
         **helper._set_resource_name("{}-route-table".format("public" if t == "public" else "private")),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -868,7 +862,6 @@ _helper_route_table_association = lambda t {
       }
       annotations = {
         **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -903,7 +896,6 @@ _helper_route = lambda t {
       }
       annotations = {
         **helper._set_resource_name("{}-route".format("public" if t == "public" else "private")),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {

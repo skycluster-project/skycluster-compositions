@@ -1,8 +1,4 @@
-
 import regex as re
-import yaml
-import base64
-
 import helper.v1alpha1.main as helper
 import provider_gcp.compute.v1beta1 as gcpv1beta1
 import provider_gcp.cloudplatform.v1beta1 as cp_v1b1
@@ -29,7 +25,6 @@ assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra 
 
 _xSetup = _extraRes["XSetup"][0]
 assert _xSetup is not Undefined, "XSetup must be provided in the extra resources"
-
 
 _oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
@@ -79,7 +74,7 @@ _defaultNodeCount = _defaultNodeGroup?[0]?.nodeCount or 1
 
 _items += [
   _helper_cluster("gkecluster", _svcAccEmail, _project, _defaultNodeCount)
-] if (_project and _svcAccEmail) or ocds?["gkecluster"] else []
+] if (_project and _svcAccEmail and helper._ready(ocds?["subnetEks"])) or ocds?["gkecluster"] else []
 
 _items += [
   _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups if ng["type"] != "default"
@@ -117,12 +112,10 @@ _items += [
   k8sv1a1.Object{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("workloadIdentitySettings"),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -150,7 +143,6 @@ _items += [
   } 
 ] if (helper._ready(ocds?["gkecluster"]) and _k8sProvCfgName) or ocds?["workloadIdentitySettings"] else []
 
-
 # _defaultSubnetStatus = extra?.defaultSubnet?[0]?.Resource?.status
 # _cidrs = {s.rangeName = s.ipCidrRange for s in _defaultSubnetStatus?.atProvider?.secondaryIpRange}
 
@@ -170,7 +162,6 @@ dxr = {
   }
 }
 
-
 # extraResources = {
 #   apiVersion: "meta.krm.kcl.dev/v1alpha1"
 #   kind: "ExtraResources"
@@ -186,20 +177,16 @@ dxr = {
 #   }
 # }
 
-
 items = [*_items, dxr]
-
 
 _helper_svc_acc = lambda s {
   cp_v1b1.ServiceAccount{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
       }
     },
@@ -218,12 +205,10 @@ _helper_svc_acc_key = lambda s {
   cp_v1b1.ServiceAccountKey{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name("{}".format(s)),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -248,12 +233,10 @@ _helper_project_iam_member = lambda s, e, p {
   cp_v1b1.ProjectIAMMember{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
         **helper._is_paused_label(oxr.metadata.labels),
       }
@@ -275,14 +258,11 @@ _helper_cluster = lambda s, e, p, nc {
   container_v1b1.Cluster{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -297,16 +277,17 @@ _helper_cluster = lambda s, e, p, nc {
         #     provider = "CALICO"
         #   }
         # ]
-        networkingMode = "ROUTES"
-        clusterIpv4Cidr = oxr.spec.podCidr.cidr
-        # ipAllocationPolicy = [
-        #   {
-        #     # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
-        #     # servicesIpv4CidrBlock = oxr.spec.serviceCidr
-        #     clusterSecondaryRangeName = "pods",
-        #     servicesSecondaryRangeName = "services",
-        #   }
-        # ]
+        networkingMode = "VPC_NATIVE"
+        clusterIpv4Cidr = oxr.spec.podCidr.cidr 
+        ipAllocationPolicy = [
+          {
+            # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
+            # servicesIpv4CidrBlock = oxr.spec.serviceCidr
+            stackType = "IPV4",
+            clusterSecondaryRangeName = "pods",
+            servicesSecondaryRangeName = "services",
+          }
+        ]
         loggingService = "logging.googleapis.com/kubernetes",
         monitoringService = "monitoring.googleapis.com/kubernetes",
         location = _oxrProvZone,
@@ -322,7 +303,7 @@ _helper_cluster = lambda s, e, p, nc {
           diskSizeGb = 20,
           diskType = "pd-standard",
           imageType = "UBUNTU_CONTAINERD",
-          machineType = "e2-medium" # TODO
+          machineType = "e2-medium" 
           # This is a public node
           labels = {
             "submariner.io/gateway" = "true"
@@ -339,18 +320,20 @@ _helper_cluster = lambda s, e, p, nc {
           metadata = {
             "disable-legacy-endpoints" = "true",
           }
-          # tags = [
-          #   "skycluster-internal" # only route 10.0.0.0/8 to gateway
-          # ]
+          tags = [
+            # Nodes route the the subnet range via submariner, that is the range
+            # defined in the subnet primary and secondary range, and service range
+            # However, for the rest of the traffic, i.e. management traffic, we route it
+            # to the gateway node
+            "skycluster-internal" # 10.0.0.0/8 to gateway, priority goes to the sumariner routes
+          ]
         }]
-        nodeVersion = "1.32.9-gke.1092000"
-        minMasterVersion = "1.32.9-gke.1092000"
+        nodeVersion = "1.33.5-gke.1201000"
+        minMasterVersion = "1.33.5-gke.1201000"
         removeDefaultNodePool = False
-        workloadIdentityConfig = [
-          {
-            workloadPool = "{}.svc.id.goog".format(p) if p else Undefined
-          }
-        ]
+        workloadIdentityConfig = [{
+          workloadPool = "{}.svc.id.goog".format(p) if p else Undefined
+        }]
       },
       providerConfigRef = {
         name = _provCfg.metadata.name,
@@ -368,7 +351,6 @@ _helper_node_group = lambda i, ng, e {
   container_v1b1.NodePool{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/composite-name" = _oxrName,
       }
@@ -448,11 +430,10 @@ _helper_subnet = lambda s {
   gcpv1beta1.Subnetwork{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
         "skycluster.io/cluster-name" = _oxrName
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
       }
     }
@@ -461,16 +442,15 @@ _helper_subnet = lambda s {
         region = _oxrProvRegion,
         # ipCidrRange = oxr.spec.podCidr.base
         ipCidrRange = oxr.spec.nodeCidr,
-        # secondaryIpRange = [
-        #   {
-        #     ipCidrRange = oxr.spec.podCidr.cidr
-        #     rangeName = "pods"
-        #   },
-        #   {
-        #     ipCidrRange = oxr.spec.serviceCidr
-        #     rangeName = "services"
-        #   }
-        # ]
+        secondaryIpRange = [
+          {
+            ipCidrRange = oxr.spec.podCidr.cidr
+            rangeName = "pods"
+          }, {
+            ipCidrRange = oxr.spec.serviceCidr
+            rangeName = "services"
+          }
+        ]
         networkSelector.matchLabels = {
           **helper._filter_default_labels(oxr.metadata.labels)
         }
@@ -487,10 +467,9 @@ _helper_k8s_secret = lambda s, kubeconf, pk {
   k8sv1a2.Object{
     metadata = {
       labels = {
-        **oxr.metadata?.labels,
+        **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
       }
       annotations = {
-        **oxr.metadata?.annotations,
         **helper._set_resource_name(s),
       },
     },
@@ -504,9 +483,8 @@ _helper_k8s_secret = lambda s, kubeconf, pk {
             name = "k8s-gke-{}".format(_oxrName),
             namespace = _ns,
             labels = {
-              **oxr.metadata?.labels,
               **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-              "skycluster.io/secret-type" = "skycluster-kubeconfig",
+              "skycluster.io/secret-type" = "k8s-connection-data",
               "skycluster.io/cluster-name" = _oxrName,
               "skycluster.io/provider-platform" = "gcp"
             },
