@@ -187,7 +187,7 @@ spec:
                   *[{
                     nodeCount = n.nodeCount or 1
                     type = n.type or "user-defined"
-                    instanceType = helper._get_instance_type(_provSettings, n.instanceType or "2vCPU-4GB", _oxrProvZone)?[0]
+                    instanceTypes = _helper_list([helper._get_instance_type(_provSettings, nn or "2vCPU-4GB", _oxrProvZone) for nn in n.instanceTypes])
                     publicAccess = n.publicAccess
                     if n.autoScaling:
                       autoScaling = {

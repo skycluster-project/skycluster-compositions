@@ -22,7 +22,7 @@ spec:
   nodeGroups:
     - nodeCount: 1
       type: default
-      instanceType: e2-medium
+      instanceTypes: [e2-medium]
       publicAccess: true
       autoScaling:
         enabled: true

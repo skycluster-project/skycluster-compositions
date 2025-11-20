@@ -277,17 +277,16 @@ _helper_cluster = lambda s, e, p, nc {
         #     provider = "CALICO"
         #   }
         # ]
-        networkingMode = "VPC_NATIVE"
-        clusterIpv4Cidr = oxr.spec.podCidr.cidr 
-        ipAllocationPolicy = [
-          {
-            # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
-            # servicesIpv4CidrBlock = oxr.spec.serviceCidr
-            stackType = "IPV4",
-            clusterSecondaryRangeName = "pods",
-            servicesSecondaryRangeName = "services",
-          }
-        ]
+        networkingMode = "ROUTES"
+        clusterIpv4Cidr = oxr.spec.podCidr.cidr
+        # ipAllocationPolicy = [
+        #   {
+        #     # clusterIpv4CidrBlock = oxr.spec.podCidr.cidr
+        #     # servicesIpv4CidrBlock = oxr.spec.serviceCidr
+        #     clusterSecondaryRangeName = "pods",
+        #     servicesSecondaryRangeName = "services",
+        #   }
+        # ]
         loggingService = "logging.googleapis.com/kubernetes",
         monitoringService = "monitoring.googleapis.com/kubernetes",
         location = _oxrProvZone,
@@ -381,13 +380,13 @@ _helper_node_group = lambda i, ng, e {
           networkConfig = [
             {enablePrivateNodes = True}
           ]
-        # maxPodsPerNode = 55 not available for route-based clusters
+        # maxPodsPerNode = 55 # not available for route-based clusters
         nodeConfig = [
           {
             diskSizeGb = 20,
             diskType = "pd-standard",
             imageType = "UBUNTU_CONTAINERD",
-            machineType = ng.instanceType or "e2-medium",
+            machineType = it,
             labels = {
               if ng.publicAccess:
                 "submariner.io/gateway" = "true"
@@ -416,7 +415,7 @@ _helper_node_group = lambda i, ng, e {
             # else:
             #   "skycluster-internal" # only route 10.0.0.0/8 to gateway
             ]
-          }
+          } for it in ng.instanceTypes
         ]
       },
       providerConfigRef = {
@@ -442,15 +441,16 @@ _helper_subnet = lambda s {
         region = _oxrProvRegion,
         # ipCidrRange = oxr.spec.podCidr.base
         ipCidrRange = oxr.spec.nodeCidr,
-        secondaryIpRange = [
-          {
-            ipCidrRange = oxr.spec.podCidr.cidr
-            rangeName = "pods"
-          }, {
-            ipCidrRange = oxr.spec.serviceCidr
-            rangeName = "services"
-          }
-        ]
+        # secondaryIpRange = [
+        #   {
+        #     ipCidrRange = oxr.spec.podCidr.cidr
+        #     rangeName = "pods"
+        #   },
+        #   {
+        #     ipCidrRange = oxr.spec.serviceCidr
+        #     rangeName = "services"
+        #   }
+        # ]
         networkSelector.matchLabels = {
           **helper._filter_default_labels(oxr.metadata.labels)
         }
