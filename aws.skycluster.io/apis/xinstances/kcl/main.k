@@ -22,7 +22,7 @@ _oxrName = oxr.metadata.name
 _oxrProvRegion = oxr.spec.providerRef.region
 _oxrProvZone = oxr.spec.providerRef.zone
 _oxrProvPlatform = oxr.spec.providerRef.platform
-_oxrAppId = oxr.spec.providerRef.applicationId or Undefined
+_oxrAppId = oxr.spec.applicationId or Undefined
 
 assert _oxrProvRegion and _oxrProvZone and _oxrProvPlatform, \
   "Provider region, primary zone, platform must be specified"
@@ -42,7 +42,6 @@ _items += [ec2v1beta1.SecurityGroup{
     }
     annotations = {
       **helper._set_resource_name("securityGroup"),
-      **helper._is_paused_label(oxr.metadata.labels),
     }
   },
   spec = {
@@ -76,7 +75,6 @@ secGrpRulesInbound = [
       }
       annotations = {
         **helper._set_resource_name("securityGroupRuleInbound-{0}-{1}".format(port.fromPort, port.toPort)),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -109,7 +107,6 @@ _items += [ec2v1beta1.KeyPair{
     }
     annotations = {
       **helper._set_resource_name("keypair"),
-      **helper._is_paused_label(oxr.metadata.labels),
     }
   },
   spec = {
@@ -132,7 +129,6 @@ _items += [ec2v1beta1.NetworkInterface{
     }
     annotations = {
       **helper._set_resource_name("networkInterface"),
-      **helper._is_paused_label(oxr.metadata.labels),
     }
   },
   spec = {
@@ -146,7 +142,7 @@ _items += [ec2v1beta1.NetworkInterface{
         },
       },
       securityGroupSelector.matchLabels = {
-        **helper._filter_default_labels(oxr.metadata.labels)
+        **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
       },
     },
     providerConfigRef = {
@@ -164,7 +160,6 @@ _items += [
       }
       annotations = {
         **helper._set_resource_name("elasticIP"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {
@@ -198,7 +193,6 @@ _items += [
       }
       annotations = {
         **helper._set_resource_name("instance"),
-        **helper._is_paused_label(oxr.metadata.labels),
       }
     },
     spec = {

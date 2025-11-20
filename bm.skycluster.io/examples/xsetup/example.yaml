@@ -3,6 +3,7 @@ kind: XSetup
 metadata:
   name: example
 spec: 
+  applicationId: aws-us-east
   gatewayDeviceName: example-gateway
   workerDeviceNames:
     - example-worker-1

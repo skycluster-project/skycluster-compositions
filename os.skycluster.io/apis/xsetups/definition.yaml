@@ -19,6 +19,8 @@ spec:
           spec:
             description: XSetupSpec defines the desired state of XSetup.
             properties:
+              applicationId:
+                type: string
               externalNetwork:
                 properties:
                   networkId:

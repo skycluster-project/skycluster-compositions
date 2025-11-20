@@ -72,6 +72,7 @@ _items += [
       }
     }
     spec = {
+      applicationId = _appId
       vpcCidr = _oxrVpcCidr
       subnets = _oxrSubnets
       publicKey = _publicKey
@@ -107,6 +108,7 @@ _items += [
       }
     }
     spec = {
+      applicationId = _appId
       vpcCidr = _oxrVpcCidr
       subnets = _oxrSubnets
       publicKey = _publicKey
@@ -143,6 +145,7 @@ _items += [
       }
     }
     spec = {
+      applicationId = _appId
       vpcCidr = _oxrVpcCidr
       subnets = _oxrSubnets
       publicKey = _publicKey
@@ -181,6 +184,7 @@ _items += [
       }
     }
     spec = {
+      applicationId = _appId
       gatewayDeviceName = oxr.spec?.gatewayDeviceName or "example-gateway"
       workerDeviceNames = oxr.spec?.workerDeviceNames or []
       providerRef={

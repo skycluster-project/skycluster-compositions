@@ -8,6 +8,7 @@ metadata:
     skycluster.io/provider-region: SCINET
     skycluster.io/provider-zone: default
 spec:
+  applicationId: aws-us-east
   vpcCidr: 10.120.0.0/16
   publicKey: |
     ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEArD1z...

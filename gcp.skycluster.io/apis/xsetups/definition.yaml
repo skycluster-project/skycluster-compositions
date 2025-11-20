@@ -19,6 +19,8 @@ spec:
           spec:
             description: XSetupSpec defines the desired state of XSetup.
             properties:
+              applicationId:
+                type: string
               gateway:
                 properties:
                   flavor:
@@ -79,8 +81,6 @@ spec:
                   name:
                     type: string
                 type: object
-              providerProfileName:
-                type: string
               log:
                 type: string
               podCidr:
