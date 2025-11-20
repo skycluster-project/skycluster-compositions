@@ -106,7 +106,10 @@ dxr = [{
           name = _k8sProvCfgName
         } if _k8sProvCfgName else Undefined
       }
-    submariner.connectionSecretName = ocds?["xoverlay"]?.Resource?.status?.connectionSecretName or Undefined
+    if ocds?["xoverlay"]?.Resource?.status?.connectionSecretName:
+      submariner = {
+        connectionSecretName = ocds?["xoverlay"]?.Resource?.status?.connectionSecretName or Undefined
+      }
     if _hsToken?["key"]:
       headscale = {
         connectionSecretName = _headscaleSecretName,
