@@ -5,6 +5,7 @@ metadata:
 spec: 
   applicationId: example-app
   flavor: t2.micro
+  preferSpot: true
   image: ami-12345678
   publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
   publicIp: true
@@ -35,3 +36,4 @@ status:
   keypair: 
     name: example-keypair
     id: kp-12345678
+  spotInstance: false

@@ -84,12 +84,12 @@ _items += [gcpv1beta1.Subnetwork{
     labels = {
       **oxr.metadata?.labels,
       **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-      # if s.default: "skycluster.io/default-subnet" = "true"
+       if i == 0:
+        "skycluster.io/default-subnet" = "true"
     }
     annotations = {
       **oxr.metadata?.annotations,
       **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
-      **helper._is_paused_label(oxr.metadata.labels),
     }
   }
   spec = {

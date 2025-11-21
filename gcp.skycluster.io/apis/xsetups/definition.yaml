@@ -85,6 +85,8 @@ spec:
                 type: string
               podCidr:
                 type: string
+              providerProfileName:
+                type: string
               serviceCidr:
                 type: string
               subnets:

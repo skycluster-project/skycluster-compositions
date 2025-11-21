@@ -139,7 +139,6 @@ spec:
                 annotations = {
                   **oxr.metadata?.annotations,
                   **helper._set_resource_name("publicAddress"),
-                  **helper._is_paused_label(oxr.metadata.labels),
                 }
               },
               spec = {
@@ -163,7 +162,6 @@ spec:
                 annotations = {
                   **oxr.metadata?.annotations,
                   **helper._set_resource_name("privateAddress"),
-                  **helper._is_paused_label(oxr.metadata.labels),
                 }
               },
               spec = {
@@ -192,7 +190,6 @@ spec:
                 annotations = {
                   **oxr.metadata?.annotations,
                   **helper._set_resource_name("firewall"),
-                  **helper._is_paused_label(oxr.metadata.labels),
                 }
               },
               spec = {
@@ -216,72 +213,90 @@ spec:
             _privateAddress = ocds?["privateAddress"]?.Resource?.status?.atProvider?.address 
             _publicAddress = ocds?["publicAddress"]?.Resource?.status?.atProvider?.address
 
-            _items += [gcpv1beta2.Instance{
-              metadata = {
-                labels = {
-                  **oxr.metadata?.labels,
-                  **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
-                  "skycluster.io/composite-name" = _oxrName,
-                }
-                annotations = {
-                  **oxr.metadata?.annotations,
-                  **helper._set_resource_name("instance"),
-                  **helper._is_paused_label(oxr.metadata.labels),
-                }
-              },
-              spec = {
-                forProvider = {
-                  machineType = oxr.spec.flavor
-                  zone = _oxrProvZone, 
-                  bootDisk = {
-                    initializeParams = {
-                      image = oxr?.spec?.image 
-                      size = oxr.spec.gateway?.volumeSize or 20,
-                      type = oxr.spec.gateway?.volumeType or "pd-standard",
-                    },
-                  }, 
-                  networkInterface = [
-                    {
-                      networkIp = _privateAddress
-                      subnetworkSelector.matchLabels = {
-                        **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
-                        "skycluster.io/default-subnet" = "true"
-                      }
-                      accessConfig = [{
-                        natIp = _publicAddress 
-                      }] if _publicAddress else Undefined
-                    }
-                  ]
-                  metadataStartupScript = ""
-                  metadata = {
-                    "ssh-keys" = "ubuntu:{}".format(oxr.spec?.publicKey) 
-                    "user-data" = oxr.spec.userData
-                  }
-                  tags = [
-                    "instance-{}".format(_oxrName),
-                    # To apply defaultrouting to the default node gateway
-                    if not oxr.spec.publicIp:
-                      "skycluster-internet" # route 0.0.0.0 to gateway
-                    else:
-                      "skycluster-internal" # only route 10.0.0.0/8 to gateway
-                  ]
-                },
-                providerConfigRef = {
-                  name = _provCfg.metadata.name,
-                },
-              }
-            }] if _privateAddress and oxr.spec.flavor else []
+            _items += [
+              _helper_instance(_privateAddress, _publicAddress)
+            ] if _privateAddress and oxr.spec.flavor else []
 
 
             dxr = {
               **option("params").dxr,
-              status.network = {
-                privateIp = _privateAddress or Undefined
-                publicIp = _publicAddress or Undefined
-              } if _privateAddress or _publicAddress else Undefined,
+              status = {
+                if _privateAddress or _publicAddress:
+                  network = {
+                    privateIp = _privateAddress or Undefined
+                    publicIp = _publicAddress or Undefined
+                  } 
+                if ocds?["instance"]?.Resource?.status?.atProvider?.scheduling?.provisioningModel == "SPOT":
+                  spotInstance = True
+              }
             }
 
             items = [*_items, dxr]
+
+
+            _helper_instance = lambda pvAddr, pubAddr {
+              gcpv1beta2.Instance{
+                metadata = {
+                  labels = {
+                    **oxr.metadata?.labels,
+                    **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId),
+                    "skycluster.io/composite-name" = _oxrName,
+                  }
+                  annotations = {
+                    **oxr.metadata?.annotations,
+                    **helper._set_resource_name("instance"),
+                  }
+                },
+                spec = {
+                  forProvider = {
+                    machineType = oxr.spec.flavor
+                    zone = _oxrProvZone, 
+                    bootDisk = {
+                      initializeParams = {
+                        image = oxr?.spec?.image 
+                        size = float(oxr.spec?.rootVolumes?[0]?.size) or 20,
+                        type = oxr.spec.rootVolumes?[0]?.type or "pd-standard",
+                      },
+                    }, 
+                    scheduling = {
+                      if oxr.spec.preferSpot:
+                        provisioningModel = "SPOT"
+                        automaticRestart = False
+                        preemptible = True 
+                    },
+                    networkInterface = [
+                      {
+                        networkIp = pvAddr
+                        subnetworkSelector.matchLabels = {
+                          **helper._filter_labels(oxr.metadata.labels, ["provider-platform", "provider-region", "application-id"])
+                          "skycluster.io/default-subnet" = "true"
+                        }
+                        if pubAddr:
+                          accessConfig = [{
+                            natIp = pubAddr 
+                          }]
+                      }
+                    ]
+                    metadataStartupScript = ""
+                    metadata = {
+                      "ssh-keys" = "ubuntu:{}".format(oxr.spec?.publicKey) 
+                      "user-data" = oxr.spec.userData
+                    }
+                    tags = [
+                      "instance-{}".format(_oxrName),
+                      # To apply defaultrouting to the default node gateway
+                      if not oxr.spec.publicIp:
+                        "skycluster-internet" # route 0.0.0.0 to gateway
+                      else:
+                        "skycluster-internal" # only route 10.0.0.0/8 to gateway
+                    ]
+                  },
+                  providerConfigRef = {
+                    name = _provCfg.metadata.name,
+                  },
+                }
+              }
+            }
 
 
     - step: function-auto-ready

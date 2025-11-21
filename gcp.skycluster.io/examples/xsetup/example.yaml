@@ -52,6 +52,7 @@ status:
     - type: public
       id: subnet-12345678
       cidrBlock: "10.20.30.0/24"
+  providerProfileName: example-provider-profile
   gateway:
     publicIp: "<public-ip>"
     privateIp: "<private-ip>"

@@ -22,7 +22,7 @@ spec:
         toPort: 80
         protocol: udp
   rootVolumes:
-    - size: 20Gi
+    - size: "20"
       type: gp2
   providerRef:
     platform: aws
