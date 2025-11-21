@@ -189,6 +189,7 @@ _helper_instance = lambda pvAddr, pubAddr {
         scheduling = {
           if oxr.spec.preferSpot:
             provisioningModel = "SPOT"
+            instanceTerminationAction = "DELETE"
             automaticRestart = False
             preemptible = True 
         },

@@ -265,6 +265,7 @@ spec:
                     scheduling = {
                       if oxr.spec.preferSpot:
                         provisioningModel = "SPOT"
+                        instanceTerminationAction = "DELETE"
                         automaticRestart = False
                         preemptible = True 
                     },
