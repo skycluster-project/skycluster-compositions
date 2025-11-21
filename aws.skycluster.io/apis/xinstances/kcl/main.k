@@ -185,6 +185,34 @@ _items += [
 _keypairName = ocds?["keypair"]?.Resource?.status?.atProvider?.id or Undefined
 
 _items += [
+  _helper_instance()
+] if (helper._ready(ocds?["networkInterface"]) and _keypairName) or ocds?["instance"] else []
+
+_keypairId = ocds?["keypair"]?.Resource?.status?.atProvider?.keyPairId or Undefined
+_privateIp = ocds?["networkInterface"]?.Resource?.status?.atProvider?.privateIp or Undefined
+_publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp or Undefined
+
+dxr = {
+  **option("params").dxr,
+  status = {
+    if _keypairId and _keypairName:
+      keypair = {
+        name = _keypairName
+        id = _keypairId
+      } 
+  if _privateIp or _publicIp:
+    network = {
+      privateIp = _privateIp
+      publicIp = _publicIp
+    } 
+  if len(ocds?["instance"]?.Resource?.status?.atProvider?.instanceMarketOptions or []) > 0:
+    spotInstance = True
+  }
+}
+
+items = [*_items, dxr]
+
+_helper_instance = lambda {
   ec2v1beta1.Instance{
     metadata = {
       labels = {
@@ -221,29 +249,16 @@ _items += [
           }
         ]
         userData = oxr.spec.userData
+        instanceMarketOptions = [{
+          marketType = "spot" 
+          # spotOptions = [{
+          #   maxPrice = "0.15"
+          # }]
+        }] if oxr.spec.preferSpot else Undefined
       },
       providerConfigRef = {
         name = _provCfg.metadata.name,
       },
     }
   }
-] if (helper._ready(ocds?["networkInterface"]) and _keypairName) or ocds?["instance"] else []
-
-
-_keypairId = ocds?["keypair"]?.Resource?.status?.atProvider?.keyPairId or Undefined
-_privateIp = ocds?["networkInterface"]?.Resource?.status?.atProvider?.privateIp or Undefined
-_publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp or Undefined
-
-dxr = {
-  **option("params").dxr,
-  status.keypair = {
-    name = _keypairName
-    id = _keypairId
-  } if _keypairId and _keypairName else Undefined,
-  status.network = {
-    privateIp = _privateIp
-    publicIp = _publicIp
-  } if _privateIp or _publicIp else Undefined,
 }
-
-items = [*_items, dxr]

@@ -89,6 +89,7 @@ _items += [
     spec = {
       applicationId = _appId
       flavor = _it
+      preferSpot = oxr.spec?.preferSpot or False
       image = _ami
       publicKey = _publicKey
       publicIp = oxr.spec?.publicIp or False
@@ -123,6 +124,7 @@ _items += [
     spec = {
       applicationId = _appId
       flavor = _it
+      preferSpot = oxr.spec?.preferSpot or False
       image = _ami
       publicKey = _publicKey
       publicIp = oxr.spec?.publicIp or False
@@ -275,6 +277,8 @@ dxr = [{
       providerConfig = {
         kubernetes.name = _sshProviderCfgName
       }
+    if ocds?["xinstance"]?.Resource?.status?.spotInstance:
+      spotInstance = True
   }
 }]
 

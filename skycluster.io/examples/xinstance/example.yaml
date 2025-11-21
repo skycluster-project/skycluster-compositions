@@ -5,6 +5,7 @@ metadata:
 spec: 
   applicationId: example-app
   flavor: t2.micro
+  preferSpot: false
   image: ubuntu-22.04
   publicKey: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3...
   publicIp: true
@@ -42,3 +43,4 @@ status:
   providerConfig:
     kubernetes:
       name: "ref"
+  spotInstance: false

@@ -27,6 +27,8 @@ spec:
                 type: string
               ipForwarding:
                 type: boolean
+              preferSpot:
+                type: boolean
               providerRef:
                 properties:
                   platform:
@@ -113,6 +115,8 @@ spec:
                         type: string
                     type: object
                 type: object
+              spotInstance:
+                type: boolean
             type: object
         required:
         - spec
