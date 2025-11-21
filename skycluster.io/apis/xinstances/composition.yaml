@@ -149,7 +149,7 @@ spec:
               if _abstractFlavor else oxr.spec?.flavor
 
             _ud = oxr.spec?.userData or Undefined
-            _scripts = ["ip-forwarding"]
+            _scripts = ["ip-forwarding", "docker-config"]
 
             if not oxr.spec?.publicIp:
               _scripts += ["routing-gateway"]
@@ -158,6 +158,13 @@ spec:
               # as it may not have the labels to be filtered.
               # So, we handle this in xinstances.<cloud> composition.
 
+            # Construct the cloud-init userData for running docker container
+            if oxr.spec?.dockerSpec:
+              _dockerScript = _dockerScriptHeader + oxr.spec?.dockerSpec + _dockerScriptBody
+              _cloudInitDockerScript = _helper_cloud_init_scripts(_dockerScript)
+              _initScripts = _initScripts + [_cloudInitDockerScript]
+              _scripts = _scripts + ["docker-setup"]
+              
             _defaultUserData: any = yaml.decode(helper._select_init_scripts(_initScripts, _scripts)) or Undefined
             _userData = helper._append_init_scripts([_defaultUserData] + ([yaml.decode(_ud)] if _ud else []))
 
@@ -372,6 +379,75 @@ spec:
             }]
 
             items = _items + dxr
+
+
+
+            _dockerScriptHeader = """\
+            #!/bin/bash
+            set -euo pipefail
+
+            """
+
+            _dockerScriptBody = """\
+
+            echo "Waiting for Docker to become ready..." > /root/docker-setup.log
+            while ! docker info >/dev/null 2>&1; do
+              sleep "$SLEEP"
+            done
+            echo "Docker is ready." >> /root/docker-setup.log
+            echo "Pulling image $IMAGE..." >> /root/docker-setup.log
+            docker pull "$IMAGE"
+
+            # Build docker run args
+            PORT_ARGS=""
+            for p in $PORT_MAPPINGS; do
+              PORT_ARGS="$PORT_ARGS -p $p"
+            done
+
+            ENV_ARGS=""
+            for e in $ENVS; do
+              ENV_ARGS="$ENV_ARGS -e $e"
+            done
+
+            echo "Running container $NAME (image: $IMAGE)..." >> /root/docker-setup.log
+            docker run -d $RESTART $PORT_ARGS $ENV_ARGS --name "$NAME" "$IMAGE"
+            echo "Container $NAME started." >> /root/docker-setup.log
+            """
+
+            _dockerScriptBase = """\
+            write_files:
+              - path: /usr/local/bin/run_container.sh
+                owner: root:root
+                permissions: '0755'
+                content: ""
+            runcmd:
+              - /usr/local/bin/run_container.sh
+            """
+
+            _helper_cloud_init_scripts = lambda script {
+              {
+                "metadata" = {
+                  labels = {
+                    "skycluster.io/script-init" = "docker-setup"
+                  }
+                }
+                "data" = {
+                  "cloud-init": _helper_embed_cloud_init_script(_dockerScriptBase, script)
+                }
+              }
+            }
+
+            _helper_embed_cloud_init_script = lambda ymlData, script {
+              yaml.encode({
+                "write_files" = [{
+                  "path" = "/usr/local/bin/run_container.sh",
+                  "owner" = "root:root",
+                  "permissions" = "0755",
+                  "content" = script,
+                }],
+                "runcmd"= [ "/usr/local/bin/run_container.sh" ]
+              })
+            }
 
     - step: function-auto-ready
       functionRef:

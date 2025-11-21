@@ -12,6 +12,9 @@ spec:
   userData: |
     #!/bin/bash
     echo "Hello, World!" > /var/tmp/hello.txt
+  dockerSpec: |
+    IMAGE="nginxdemos/hello:latest"
+    NAME="demo-hello"
   ipForwarding: true # only openstack platform
   subnets:
   - id: subnet-12345678
