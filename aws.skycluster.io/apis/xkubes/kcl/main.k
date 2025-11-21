@@ -94,10 +94,23 @@ _items += [_helper_role_node_group("nodegroupRole")]
 _items += [_helper_launch_template()] if _secGroups else []
 
 _lnchTemplateName = ocds?["lnchTemplatePublic"]?.Resource?.status?.atProvider?.name
+_main_ng = {
+  publicAccess = True,
+  nodeCount = 2,
+  instanceTypes = ["t3.medium"],
+  autoScaling = {
+    minSize = 2,
+    maxSize = 3
+  }
+}
 _items += [
-  # The public node group is used to create nodes acting as gateways for the cluster.
-  _helper_node_group(i, ng, _lnchTemplateName) for i, ng in _nodeGroups if ng.publicAccess
-] if (helper._ready(ocds?["vpc-cni-addon"]) and _lnchTemplateName) or ocds?["nodeGroupPublic0"] else []
+  _helper_node_group(1000, _main_ng, _lnchTemplateName)
+] if (helper._ready(ocds?["vpc-cni-addon"]) and _lnchTemplateName) or ocds?["nodeGroup1000Public"] else []
+
+# _items += [
+#   # The public node group is used to create nodes acting as gateways for the cluster.
+#   _helper_node_group(i, ng, _lnchTemplateName) for i, ng in _nodeGroups if ng.publicAccess
+# ] if (helper._ready(ocds?["vpc-cni-addon"]) and _lnchTemplateName) or ocds?["nodeGroupPublic0"] else []
 
 _items += _helper_ebs_role()
 
@@ -739,15 +752,6 @@ _helper_node_group = lambda i, ng, ltName {
             "skycluster.io/public-subnet" = "false"
           },
         }
-        # remoteAccess = {
-        #   ec2SshKey = _xSetup?.status?.keypair?.id
-        #   sourceSecurityGroupIdSelector = {
-        #     matchLabels = {
-        #       **helper._filter_default_labels(oxr.metadata.labels)
-        #       "skycluster.io/secgroup-type" = "default",
-        #     }
-        #   }
-        # }
         instanceTypes = ng.instanceTypes or ["t3.medium"]
         subnetIdSelector.matchLabels = {
           "skycluster.io/public-subnet" = "true" if ng.publicAccess else "false"
