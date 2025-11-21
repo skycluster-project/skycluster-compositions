@@ -96,6 +96,8 @@ spec:
                   publicIp:
                     type: string
                 type: object
+              providerName:
+                type: string
               spotInstance:
                 type: boolean
             type: object

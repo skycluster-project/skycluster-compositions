@@ -37,6 +37,7 @@ spec:
     zone: us-east-1a
 status:
   log: "Instance created successfully."
+  providerName: aws-provider-1
   network:
     publicIp: "203.0.113.0"
     privateIp: "10.0.0.1"

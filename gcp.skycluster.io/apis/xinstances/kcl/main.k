@@ -15,6 +15,9 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 _skySetup = _extraRes["SkySetups"][0]
 assert _skySetup is not Undefined, "SkySetup must be provided in the extra resources"
 
+_provSetup = _extraRes["XSetup"][0]
+assert _provSetup is not Undefined, "ProviderSetup must be provided in the extra resources"
+
 _provCfg = _extraRes["ProviderConfigs"]?[0]
 assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra resources"
 
@@ -145,6 +148,7 @@ _items += [
 dxr = {
   **option("params").dxr,
   status = {
+    providerName = _provSetup?.metadata?.labels?["crossplane.io/composite"]
     if _privateAddress or _publicAddress:
       network = {
         privateIp = _privateAddress or Undefined

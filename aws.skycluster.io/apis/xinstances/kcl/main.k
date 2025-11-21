@@ -14,6 +14,9 @@ assert _extraRes is not Undefined, "Extra resources must be provided in the cont
 _skySetup = _extraRes["SkySetups"][0]
 assert _skySetup is not Undefined, "SkySetup must be provided in the extra resources"
 
+_provSetup = _extraRes["XSetup"][0]
+assert _provSetup is not Undefined, "ProviderSetup must be provided in the extra resources"
+
 _provCfg = _extraRes["ProviderConfigs"]?[0]
 assert _provCfg is not Undefined, "ProviderConfig must be provided in the extra resources"
 
@@ -195,6 +198,7 @@ _publicIp = ocds?["elasticIP"]?.Resource?.status?.atProvider?.publicIp or Undefi
 dxr = {
   **option("params").dxr,
   status = {
+    providerName = _provSetup?.metadata?.labels?["crossplane.io/composite"]
     if _keypairId and _keypairName:
       keypair = {
         name = _keypairName

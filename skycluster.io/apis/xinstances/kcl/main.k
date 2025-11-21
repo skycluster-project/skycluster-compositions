@@ -275,6 +275,7 @@ dxr = [{
   **option("params").dxr,
   status = {
     # log = "yes" if oxr.spec?.providerRef?.platform == "aws" else "no"
+    providerName = ocds?["xinstance"]?.Resource?.status?.providerName
     if _privateIp or _publicIp:
       network = {
         privateIp = _privateIp
