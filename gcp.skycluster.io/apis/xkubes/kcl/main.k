@@ -64,18 +64,17 @@ _items += [
 
 _items += [_helper_subnet("subnetEks")]
 
-# we need to get the default node group spec if defined
-# then set the init count based on that
-_nodeGroups = oxr.spec.nodeGroups
-_defaultNodeGroup = [n for n in oxr.spec.nodeGroups if n?["type"] == "default"]
-_nodeGroupsExists = any_true([ocds?["nodePool{}".format(i)] or False for i, _ in _nodeGroups])
-assert len(_defaultNodeGroup) <= 1, "Only one default node group is allowed"
-_defaultNodeCount = _defaultNodeGroup?[0]?.nodeCount or 1
+# we need to have a default node group spec
+# _defaultNodeGroup = [n for n in oxr.spec.nodeGroups if n?["type"] == "default"]
+# assert len(_defaultNodeGroup) <= 1, "Only one default node group is allowed"
+_defaultNodeCount = 2
 
 _items += [
   _helper_cluster("gkecluster", _svcAccEmail, _project, _defaultNodeCount)
 ] if (_project and _svcAccEmail and helper._ready(ocds?["subnetEks"])) or ocds?["gkecluster"] else []
 
+_nodeGroups = oxr.spec.nodeGroups
+_nodeGroupsExists = any_true([ocds?["nodePool{}".format(i)] or False for i, _ in _nodeGroups])
 _items += [
   _helper_node_group(i, ng, _svcAccEmail) for i, ng in _nodeGroups if ng["type"] != "default"
 ] if _svcAccEmail or _nodeGroupsExists else []
@@ -303,6 +302,7 @@ _helper_cluster = lambda s, e, p, nc {
           diskType = "pd-standard",
           imageType = "UBUNTU_CONTAINERD",
           machineType = "e2-medium" 
+          preemptible = False
           # This is a public node
           labels = {
             "submariner.io/gateway" = "true"
@@ -365,11 +365,12 @@ _helper_node_group = lambda i, ng, e {
         autoscaling = [
           {
             totalMinNodeCount = ng.autoscaling?.minSize or 1,
-            totalMaxNodeCount = ng.autoscaling?.maxSize or 3,
+            totalMaxNodeCount = ng.autoscaling?.maxSize or 100,
           }
         ]
         clusterSelector.matchControllerRef = True
-        initialNodeCount = ng.nodeCount or 1
+        if ng.nodeCount:
+          initialNodeCount = ng.nodeCount
         management = [
           {
             autoRepair = True,
@@ -398,7 +399,7 @@ _helper_node_group = lambda i, ng, e {
             oauthScopes = [
               "https://www.googleapis.com/auth/cloud-platform"
             ],
-            preemptible = True,
+            spot = True,
             shieldedInstanceConfig: [
               {
                 enableIntegrityMonitoring = True,
