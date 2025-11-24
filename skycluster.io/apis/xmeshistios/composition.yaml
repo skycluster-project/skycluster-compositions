@@ -204,18 +204,6 @@ spec:
                   _k8sProvCfgName
             ]
 
-            # TODO: FIX THIS
-            # Apply remote-secret for each cluster on all other clusters
-            # Create a remote secret for cluster s on cluster t
-            # It fetches the generated remote-secret for cluster s and applies it to cluster t
-            #
-            # _items += [ # install secret s into cluster t
-            #   _helper_istio_remote_secret(s, t) for s in _clusterNamesRef for t in _clusterNamesRef \
-            #     if (s != t and _remoteSecretsMap and _remoteProviderCfgsMaps and _remoteSecretsMap?[s]?.data?["remote-secret.yaml"])
-            #     # or ocds?["istio-rsec-{}-{}".format(s,t)]
-            # ] 
-
-
 
             # # ###################### dxr ######################
 
@@ -428,36 +416,6 @@ spec:
                   }
                   providerConfigRef = {
                     name = _remoteProviderCfgsMaps?[s]?.helm
-                  }
-                }
-              }
-            }
-
-            _helper_istio_remote_secret = lambda s, t {
-              k8sv1a2.Object{
-                metadata = {
-                  labels = {"skycluster.io/secret-type": "remote"}
-                  annotations = helper._set_resource_name("istio-rsec-{}-{}".format(s, t)) | {
-                    "skycluster.io/from-cluster": s,
-                    "skycluster.io/to-cluster": t
-                  }
-                }
-                spec = {
-                  forProvider.manifest = {
-                    apiVersion = "v1"
-                    kind = "Secret"
-                    metadata = {
-                      name = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.name
-                      namespace = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.namespace
-                      labels = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.labels | {
-                        "skycluster.io/secret-type": "remote"
-                      }
-                      annotations = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.metadata?.annotations
-                    }
-                    stringData = yaml.decode(base64.decode(_remoteSecretsMap?[s]?.data?["remote-secret.yaml"]).replace("---",""))?.stringData
-                  }
-                  providerConfigRef = {
-                    name = _remoteProviderCfgsMaps[t]?.k8s
                   }
                 }
               }
