@@ -372,7 +372,7 @@ _helper_cluster = lambda s {
     spec: _defaults | {
       forProvider = {
         region = _oxrProvRegion
-        version = "1.32"
+        version = "1.33"
         accessConfig = {
           authenticationMode = "API_AND_CONFIG_MAP"
           bootstrapClusterCreatorAdminPermissions = True
