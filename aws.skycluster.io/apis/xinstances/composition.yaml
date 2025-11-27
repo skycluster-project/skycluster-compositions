@@ -55,9 +55,9 @@ spec:
                   - key: skycluster.io/provider-region
                     type: FromCompositeFieldPath
                     valueFromFieldPath: spec.providerRef.region
-                  - key: skycluster.io/provider-zone
-                    type: FromCompositeFieldPath
-                    valueFromFieldPath: spec.providerRef.zone
+                  # - key: skycluster.io/provider-zone
+                  #   type: FromCompositeFieldPath
+                  #   valueFromFieldPath: spec.providerRef.zone
                   - key: skycluster.io/application-id
                     type: FromCompositeFieldPath
                     valueFromFieldPath: spec.applicationId
