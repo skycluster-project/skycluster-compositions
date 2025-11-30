@@ -58,21 +58,14 @@ _items += [_helper_network_interface()]
 _items += [_helper_internet_gw()]
 
 #
-# Public route table
+# Route tables
 #
 _items += [_helper_route_table("public")]
-
-_items += [_helper_route_table_association("public")]
-
-_items += [_helper_route("public")]
-
-#
-# Private route table
-#
 _items += [_helper_route_table("private")]
 
-_items += [_helper_route_table_association("private")]
+_items += [_helper_route_table_association(i, s) for i, s in _subnets]
 
+_items += [_helper_route("public")]
 _items += [_helper_route("private")]
 
 # Security group configuration
@@ -288,6 +281,7 @@ _helper_subnet = lambda i, s {
       labels = {
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, "", _oxrAppId),
         "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
+        "skycluster.io/subnat-id" = "subnet-{}-{}".format("private" if s.type == "private" else "public", i)
       }
       annotations = {
         **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),
@@ -383,15 +377,15 @@ _helper_route_table = lambda t {
   }
 }
 
-_helper_route_table_association = lambda t {
+_helper_route_table_association = lambda i, s {
   ec2v1beta1.RouteTableAssociation{
     metadata = {
       labels = {
         **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, _oxrProvZone, _oxrAppId)
-        "skycluster.io/public-subnet" = "true" if t == "public" else "false",
+        "skycluster.io/public-subnet" = "true" if s.type == "public" else "false",
       }
       annotations = {
-        **helper._set_resource_name("{}-route-table-association".format("public" if t == "public" else "private")),
+        **helper._set_resource_name("{}-route-table-assoc-{}".format("public" if s.type == "public" else "private", i)),
       }
     },
     spec = {
@@ -400,13 +394,13 @@ _helper_route_table_association = lambda t {
         routeTableIdSelector = {
           matchControllerRef = True,
           matchLabels = {
-            "skycluster.io/public-route-table" = "true" if t == "public" else "false",
+            "skycluster.io/public-route-table" = "true" if s.type == "public" else "false",
           },
         },
         subnetIdSelector = {
           matchControllerRef = True,
           matchLabels = {
-            "skycluster.io/public-subnet" = "true" if t == "public" else "false",
+            "skycluster.io/subnat-id" = "subnet-{}-{}".format("private" if s.type == "private" else "public", i)
           },
         },
       },
