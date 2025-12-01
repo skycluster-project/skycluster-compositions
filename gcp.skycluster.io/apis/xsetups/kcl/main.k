@@ -319,7 +319,7 @@ dxr = {
       {
         type = "public" if v.metadata?.labels?["skycluster.io/public-subnet"] and v.metadata?.labels?["skycluster.io/public-subnet"] == "true" else "private"
         id = v.status?.atProvider?.id
-        cidrBlock = v.status?.atProvider?.cidrBlock
+        cidrBlock = v.status?.atProvider?.cidrBlock or Undefined
       } for _, v in _ocdsSubnets if v
     ]
     if _publicAddress or _privateAddress:

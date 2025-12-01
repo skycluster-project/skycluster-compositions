@@ -335,7 +335,8 @@ spec:
                   labels = {
                     **helper._set_default_labels(_oxrProvPlatform, _oxrProvRegion, "", _oxrAppId),
                     "skycluster.io/public-subnet" = "false" if s.type == "private" else "true",
-                    "skycluster.io/subnat-id" = "subnet-{}-{}".format("private" if s.type == "private" else "public", i)
+                    "skycluster.io/subnet-zone" = s.zone
+                    "skycluster.io/subnet-id" = "subnet-{}-{}".format("private" if s.type == "private" else "public", i)
                   }
                   annotations = {
                     **helper._set_resource_name("subnet{}{}".format("Private" if s.type == "private" else "Public", i)),

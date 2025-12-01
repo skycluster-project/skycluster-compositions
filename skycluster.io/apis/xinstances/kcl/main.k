@@ -52,7 +52,7 @@ assert _publicKey, "Public key must be specified in the SkySetup status"
 
 # Supporting both skycluster abstract types and images and provider-native images and types
 # _abstractFlavor = regex.match(oxr.spec?.flavor or "2vCPU-4GB", "^\d+vCPU-\d+GB$")
-_abstractImage = regex.match(oxr.spec?.image or "ubuntu-24.04", "^ubuntu-\d+\.\d+$")
+_abstractImage = regex.match(oxr.spec?.image or "ubuntu-24.04", "^ubuntu-\d+\\.\d+(-gpu)?$")
 
 _ami = helper._get_image(_provSettings, oxr.spec?.image or "ubuntu-24.04", _oxrProvZone)?.name \
   if _abstractImage else oxr.spec?.image
@@ -60,7 +60,7 @@ _it = helper._get_instance_type(_provSettings, oxr.spec?.flavor or "2vCPU-4GB", 
   # if _abstractFlavor else oxr.spec?.flavor
 
 _ud = oxr.spec?.userData or Undefined
-_scripts = ["ip-forwarding", "docker-config"]
+_scripts = ["ip-forwarding", "docker-config", "docker-runtime-config"]
 
 if not oxr.spec?.publicIp:
   _scripts += ["routing-gateway"]
